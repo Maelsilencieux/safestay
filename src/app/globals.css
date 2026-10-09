@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-burkina-green: #009e49;
+  --color-burkina-yellow: #fcd116;
+  --color-burkina-red: #ef2b2d;
+  --color-navy: #172033;
+  --color-navy-light: #26344d;
+  --color-cream: #f5f7f5;
+  --color-muted: #6b7280;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-cream);
+    color: var(--color-navy);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+
+@layer utilities {
+  .bg-burkina-green { background-color: #009e49; }
+  .text-burkina-green { color: #007f3b; }
+  .border-burkina-green { border-color: #009e49; }
+  .bg-burkina-yellow { background-color: #fcd116; }
+  .text-burkina-yellow { color: #fcd116; }
+  .border-burkina-yellow { border-color: #fcd116; }
+  .bg-burkina-red { background-color: #ef2b2d; }
+  .text-burkina-red { color: #c51f25; }
+  .border-burkina-red { border-color: #ef2b2d; }
+  .burkina-stripe { height: 5px; background: linear-gradient(to right, #009e49 0 33.33%, #fcd116 33.33% 66.66%, #ef2b2d 66.66% 100%); }
+  .institutional-grid { background-image: linear-gradient(rgba(15,23,42,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,.045) 1px, transparent 1px); background-size: 28px 28px; }
+}
