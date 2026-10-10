@@ -1,1124 +1,569 @@
-
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import {
-  RefreshCw,
-  Search,
+  Shield,
+  IdCard,
+  Plane,
+  BedDouble,
+  CreditCard,
+  Check,
+  LogOut,
+  Upload,
   FileText,
-  Eye,
-  CheckCircle2,
-  XCircle,
-  Send,
-  LoaderCircle,
-  AlertCircle,
-  ArrowLeft,
-  X,
-  UserRound,
-  CalendarDays,
-  Hotel,
-  ShieldCheck,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { Hotels, Fiches } from "@/lib/api";
+import type { Hotel } from "@/types";
+import Button from "@/components/ui/Button";
+import Input from "@/components/ui/Input";
+import Select from "@/components/ui/Select";
+import { Card, CardHeader, CardBody } from "@/components/ui/Card";
+import { cn } from "@/lib/utils";
 
-import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
-import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
+const STEPS = [
+  { id: 1, label: "Identité", icon: IdCard },
+  { id: 2, label: "Voyage", icon: Plane },
+  { id: 3, label: "Séjour", icon: BedDouble },
+  { id: 4, label: "Paiement", icon: CreditCard },
+];
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/backend";
+const NATIONALITES = [
+  "Burkinabé", "Ivoirien", "Malien", "Nigérien",
+  "Sénégalais", "Guinéen", "Togolais", "Béninois",
+  "Ghanéen", "Nigérian", "Américain", "Français", "Autre",
+].map((n) => ({ value: n, label: n }));
 
-type Fiche = {
-  _id: string;
-  reference?: string;
-  nom?: string;
-  prenom?: string;
-  email?: string;
-  telephone?: string;
-  adresse?: string;
-  quartier?: string;
-  secteur?: string;
-  ville?: string;
-  dateNaissance?: string;
-  numeroPiece?: string;
-  typePiece?: string;
-  cnibFichier?: string;
-  pdfFiche?: string;
-  chambreNumero?: string;
-  nationalite?: string;
-  dateEntree?: string;
-  dateSortie?: string;
-  createdAt?: string;
-  statut: string;
-  motifRefus?: string;
-  client?: {
-    _id?: string;
-    nom?: string;
-    prenom?: string;
-    email?: string;
-    telephone?: string;
-  };
+const PIECES = [
+  { value: "CNIB", label: "CNIB / Carte d'identité" },
+  { value: "Passeport", label: "Passeport" },
+  { value: "Permis", label: "Permis de conduire" },
+  { value: "Autre", label: "Autre" },
+];
+
+const MOTIFS = [
+  { value: "Tourisme", label: "Tourisme" },
+  { value: "Affaires", label: "Affaires" },
+  { value: "Famille", label: "Famille / Visite" },
+  { value: "Transit", label: "Transit" },
+  { value: "Autre", label: "Autre" },
+];
+
+const TRANSPORTS = [
+  { value: "Voiture", label: "Voiture particulière" },
+  { value: "Taxi", label: "Taxi" },
+  { value: "Bus", label: "Bus / Car" },
+  { value: "Avion", label: "Avion" },
+  { value: "Train", label: "Train" },
+  { value: "Autre", label: "Autre" },
+];
+
+const PAIEMENTS = [
+  { value: "cash", label: "Espèces", icon: "💵" },
+  { value: "cheque", label: "Chèque de voyages", icon: "📝" },
+  { value: "carte", label: "Carte de crédit", icon: "💳" },
+  { value: "voucher", label: "Voucher", icon: "🎫" },
+] as const;
+
+// Structure alignée sur le modèle et les validateurs backend (fiches.js)
+interface FicheState {
+  nom: string;
+  prenom: string;
+  dateNaissance: string;
+  lieuNaissance: string;
+  nationalite: string;
+  profession: string;
+  adresse: string;
+  ville: string;
+  bp: string;
+  typePiece: string;
+  numeroPiece: string;
+  delivreLe: string;
+  delivreA: string;
+  venantDe: string;
+  allantA: string;
+  motif: string;
+  hotelId: string;
+  dateEntree: string;
+  dateSortie: string;
+  chambreNumero: string;
+  transport: string;
+  plaque: string;
+  modePaiement: string;
+  cnibFile: File | null;
+}
+
+const initialForm: FicheState = {
+  nom: "",
+  prenom: "",
+  dateNaissance: "",
+  lieuNaissance: "",
+  nationalite: "",
+  profession: "",
+  adresse: "",
+  ville: "",
+  bp: "",
+  typePiece: "CNIB",
+  numeroPiece: "",
+  delivreLe: "",
+  delivreA: "",
+  venantDe: "",
+  allantA: "",
+  motif: "",
+  hotelId: "",
+  dateEntree: "",
+  dateSortie: "",
+  chambreNumero: "",
+  transport: "",
+  plaque: "",
+  modePaiement: "cash",
+  cnibFile: null,
 };
 
-type ActionFiche = "valider" | "refuser" | "transmettre-police";
-
-async function apiRequest(
-  path: string,
-  method = "GET",
-  body?: unknown
-) {
-  const token = localStorage.getItem("ss_token");
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
-
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok || data.success === false) {
-    throw new Error(data.message || `Erreur HTTP ${response.status}`);
-  }
-
-  return data;
-}
-
-function formatDate(value?: string) {
-  if (!value) return "Non renseignée";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "Non renseignée";
-
-  return date.toLocaleDateString("fr-FR");
-}
-
-function statutLabel(statut: string) {
-  const labels: Record<string, string> = {
-    pending: "En attente",
-    registered: "Validée",
-    refused: "Refusée",
-    transmitted: "Transmise à la police",
-  };
-
-  return labels[statut] || statut;
-}
-
-function statutStyle(statut: string) {
-  const styles: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-800",
-    registered: "bg-green-100 text-green-800",
-    refused: "bg-red-100 text-red-800",
-    transmitted: "bg-blue-100 text-blue-800",
-  };
-
-  return styles[statut] || "bg-slate-100 text-slate-700";
-}
-
-function Champ({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-lg bg-slate-50 p-3">
-      <p className="mb-1 text-xs font-medium text-slate-500">
-        {label}
-      </p>
-      <p className="break-words text-sm font-semibold text-slate-900">
-        {value?.trim() || "Non renseigné"}
-      </p>
-    </div>
-  );
-}
-
-export default function HotelFichesPage() {
+export default function FichePage() {
+  const { user, loading: authLoading, logout } = useAuth();
   const router = useRouter();
-
-  const [fiches, setFiches] = useState<Fiche[]>([]);
-  const [statut, setStatut] = useState("all");
-  const [recherche, setRecherche] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [actionId, setActionId] = useState<string | null>(null);
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState<FicheState>(initialForm);
+  const [hotels, setHotels] = useState<Hotel[]>([]);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [ficheSelectionnee, setFicheSelectionnee] =
-    useState<Fiche | null>(null);
-
-  const chargerFiches = useCallback(async () => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const query =
-        statut === "all"
-          ? ""
-          : `?statut=${encodeURIComponent(statut)}`;
-
-      const data = await apiRequest(`/fiches/hotel${query}`);
-
-      setFiches(Array.isArray(data.fiches) ? data.fiches : []);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Impossible de charger les fiches hôtelières."
-      );
-      setFiches([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [statut]);
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    chargerFiches();
-  }, [chargerFiches]);
+    if (!authLoading && !user) {
+      router.push("/login");
+    } else if (user) {
+      setForm((f) => ({
+        ...f,
+        nom: user.nom || "",
+        prenom: user.prenom || "",
+      }));
+    }
+  }, [user, authLoading, router]);
 
-  async function traiterFiche(
-    fiche: Fiche,
-    action: ActionFiche
-  ) {
-    let body: { motif?: string } | undefined;
+  useEffect(() => {
+    Hotels.getAll().then(setHotels);
+  }, []);
 
-    if (action === "refuser") {
-      const motif = window.prompt(
-        "Indique le motif du refus :",
-        "Informations non conformes"
-      );
+  const update = useCallback(
+    (key: keyof FicheState, value: string | File | null) => {
+      setForm((f) => ({ ...f, [key]: value }));
+      setError("");
+    },
+    []
+  );
 
-      if (motif === null) return;
-
-      if (!motif.trim()) {
-        setError("Le motif du refus est obligatoire.");
-        return;
+  function validateStep(s: number): boolean {
+    if (s === 1) {
+      if (
+        !form.nom ||
+        !form.prenom ||
+        !form.dateNaissance ||
+        !form.lieuNaissance ||
+        !form.nationalite ||
+        !form.adresse ||
+        !form.ville ||
+        !form.typePiece ||
+        !form.numeroPiece ||
+        !form.delivreLe ||
+        !form.delivreA ||
+        !form.cnibFile
+      ) {
+        setError("Veuillez remplir tous les champs obligatoires de l'identité et joindre votre pièce (CNIB/Passeport).");
+        return false;
       }
+    }
+    if (s === 2) {
+      if (!form.venantDe || !form.allantA || !form.motif) {
+        setError("Veuillez indiquer votre provenance, destination et le motif du séjour.");
+        return false;
+      }
+    }
+    if (s === 3) {
+      if (!form.hotelId || !form.dateEntree || !form.dateSortie || !form.chambreNumero || !form.transport) {
+        setError("Veuillez compléter toutes les informations de séjour (hôtel, dates, chambre et transport).");
+        return false;
+      }
+      if (new Date(form.dateSortie) <= new Date(form.dateEntree)) {
+        setError("La date de sortie doit être postérieure à la date d'entrée.");
+        return false;
+      }
+    }
+    return true;
+  }
 
-      body = { motif: motif.trim() };
+  function next() {
+    if (validateStep(step)) {
+      setStep((s) => Math.min(s + 1, 4));
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }
+
+  function prev() {
+    setError("");
+    setStep((s) => Math.max(s - 1, 1));
+  }
+
+  async function handleSubmit() {
+    if (!validateStep(3)) return;
+    setSubmitting(true);
+    setError("");
+
+    const fd = new FormData();
+    Object.entries(form).forEach(([k, v]) => {
+      if (v instanceof File) {
+        if (k === "cnibFile") {
+          fd.append("cnib", v); // Correspond à upload.single('cnib') côté backend
+        } else {
+          fd.append(k, v);
+        }
+      } else if (v != null && v !== "") {
+        fd.append(k, String(v));
+      }
+    });
+
+    const res = await Fiches.submit(fd);
+    setSubmitting(false);
+
+    if (res.ok && res.data.success) {
+      setSuccess(true);
     } else {
-      const confirmations: Record<string, string> = {
-        valider:
-          "Confirmer la validation de cette fiche ?",
-        "transmettre-police":
-          "Confirmer la transmission de cette fiche à la police ?",
-      };
-
-      if (!window.confirm(confirmations[action])) return;
-    }
-
-    setActionId(fiche._id);
-    setError("");
-    setMessage("");
-
-    try {
-      const data = await apiRequest(
-        `/fiches/${fiche._id}/${action}`,
-        "PATCH",
-        body
-      );
-
-      setMessage(
-        data.message || "Opération effectuée avec succès."
-      );
-
-      setFicheSelectionnee(null);
-
-      await chargerFiches();
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "L'opération a échoué."
-      );
-    } finally {
-      setActionId(null);
+      setError(res.data.message || "Erreur lors de l'envoi de la fiche.");
     }
   }
 
-  async function ouvrirDocument(
-    fiche: Fiche,
-    type: "cnib" | "fiche-pdf"
-  ) {
-    setError("");
-
-    // Ouvrir immédiatement un onglet pour éviter
-    // le blocage des fenêtres par le navigateur.
-    const onglet = window.open("about:blank", "_blank");
-
-    if (!onglet) {
-      setError(
-        "Autorise les fenêtres pop-up pour consulter le document."
-      );
-      return;
-    }
-
-    onglet.document.title = "Chargement du document...";
-
-    try {
-      const token = localStorage.getItem("ss_token");
-
-      if (!token) {
-        throw new Error(
-          "Session expirée. Connecte-toi à nouveau."
-        );
-      }
-
-      const endpoint =
-        type === "cnib"
-          ? `${API_BASE}/fiches/${fiche._id}/cnib`
-          : `${API_BASE}/fiches/${fiche._id}/fiche-pdf/download`;
-
-      const response = await fetch(endpoint, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-
-        throw new Error(
-          data.message ||
-            `Impossible d'ouvrir le document (HTTP ${response.status}).`
-        );
-      }
-
-      const blob = await response.blob();
-
-      if (blob.size === 0) {
-        throw new Error("Le document est vide.");
-      }
-
-      const url = URL.createObjectURL(blob);
-
-      onglet.location.href = url;
-
-      // Laisser le temps au navigateur d'utiliser le fichier.
-      window.setTimeout(() => {
-        URL.revokeObjectURL(url);
-      }, 120000);
-    } catch (err) {
-      onglet.close();
-
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Erreur lors de la consultation du document."
-      );
-    }
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#009e49] border-t-transparent" />
+      </div>
+    );
   }
 
-  const fichesFiltrees = fiches.filter((fiche) => {
-    const terme = recherche.trim().toLowerCase();
-
-    if (!terme) return true;
-
-    return [
-      fiche.nom,
-      fiche.prenom,
-      fiche.reference,
-      fiche.numeroPiece,
-      fiche.client?.email,
-      fiche.email,
-      fiche.chambreNumero,
-      fiche.nationalite,
-      fiche.telephone,
-    ]
-      .filter(Boolean)
-      .some((valeur) =>
-        String(valeur).toLowerCase().includes(terme)
-      );
-  });
+  if (success) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[#f5f7f5] px-6">
+        <div className="mx-auto max-w-md text-center">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-100">
+            <Check className="h-10 w-10 text-green-600" />
+          </div>
+          <h2 className="font-display text-3xl font-bold text-[#172033]">
+            Fiche envoyée !
+          </h2>
+          <p className="mt-3 text-[#172033]/60">
+            Votre fiche d&apos;enregistrement a été transmise à l&apos;hôtel.
+            Vous serez notifié dès sa validation.
+          </p>
+          <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <Button onClick={() => router.push("/mes-fiches")}>
+              Voir mes fiches
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSuccess(false);
+                setStep(1);
+                setForm({
+                  ...initialForm,
+                  nom: user?.nom || "",
+                  prenom: user?.prenom || "",
+                });
+              }}
+            >
+              Nouvelle fiche
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      <InstitutionalHeader />
-
-      <main className="flex-1 space-y-6 p-4 md:p-8">
-        <button
-          type="button"
-          onClick={() => router.push("/hotel/dashboard")}
-          className="inline-flex items-center gap-2 text-sm
-            font-medium text-slate-600 hover:text-slate-900"
-        >
-          <ArrowLeft size={16} />
-          Retour au tableau de bord
-        </button>
-
-        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-          <div>
-            <h1 className="text-2xl font-bold text-slate-900">
-              Fiches hôtelières
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Consultez les formulaires, vérifiez les pièces
-              et traitez les déclarations avant validation.
-            </p>
+    <div className="min-h-screen bg-[#f5f7f5]">
+      {/* Topbar */}
+      <header className="sticky top-0 z-50 border-b border-black/5 bg-white/90 backdrop-blur-md">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3.5">
+          <div className="flex items-center gap-2">
+            <Shield className="h-6 w-6 text-[#009e49]" />
+            <span className="font-display text-lg font-semibold text-[#172033]">
+              SafeStay
+            </span>
           </div>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="hidden text-[#172033]/60 sm:inline">
+              Bonjour, <strong>{user?.prenom || "Visiteur"}</strong>
+            </span>
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[#172033]/50 transition hover:bg-black/5 hover:text-[#172033]"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Déconnexion</span>
+            </button>
+          </div>
+        </div>
+      </header>
 
-          <button
-            type="button"
-            onClick={chargerFiches}
-            disabled={loading}
-            className="inline-flex items-center justify-center
-              gap-2 rounded-lg border bg-white px-4 py-2
-              text-sm font-medium hover:bg-slate-50
-              disabled:opacity-50"
-          >
-            <RefreshCw
-              size={16}
-              className={loading ? "animate-spin" : ""}
-            />
-            Actualiser
-          </button>
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        {/* Progress */}
+        <div className="mb-10 text-center">
+          <h1 className="font-display text-3xl font-bold text-[#172033]">
+            Fiche d&apos;enregistrement
+          </h1>
+          <p className="mt-1 text-sm text-[#172033]/50">
+            Remplissez votre fiche et envoyez-la à l&apos;hôtel pour validation.
+          </p>
+
+          <div className="mt-8 flex items-center justify-center gap-0">
+            {STEPS.map((s, i) => {
+              const Icon = s.icon;
+              const done = step > s.id;
+              const active = step === s.id;
+              return (
+                <div key={s.id} className="flex items-center">
+                  <div className="flex flex-col items-center">
+                    <div
+                      className={cn(
+                        "flex h-11 w-11 items-center justify-center rounded-full border-2 transition-all",
+                        done && "border-green-500 bg-green-500 text-white",
+                        active && "border-[#009e49] bg-[#009e49] text-white shadow-lg shadow-[#009e49]/30",
+                        !done && !active && "border-black/15 bg-white text-black/30"
+                      )}
+                    >
+                      {done ? (
+                        <Check className="h-5 w-5" />
+                      ) : (
+                        <Icon className="h-5 w-5" />
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "mt-1.5 text-xs font-medium",
+                        active ? "text-[#009e49]" : "text-black/40"
+                      )}
+                    >
+                      {s.label}
+                    </span>
+                  </div>
+                  {i < STEPS.length - 1 && (
+                    <div
+                      className={cn(
+                        "mx-2 mb-5 h-0.5 w-10 sm:w-16",
+                        step > s.id ? "bg-green-500" : "bg-black/10"
+                      )}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {error && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-lg
-              border border-red-200 bg-red-50 p-3
-              text-sm text-red-700"
-          >
-            <AlertCircle size={18} className="mt-0.5 shrink-0" />
-            <span>{error}</span>
-            <button
-              type="button"
-              onClick={() => setError("")}
-              className="ml-auto"
-              aria-label="Fermer le message"
-            >
-              <X size={16} />
-            </button>
+          <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
           </div>
         )}
 
-        {message && (
-          <div
-            role="status"
-            className="flex items-center gap-2 rounded-lg
-              border border-green-200 bg-green-50 p-3
-              text-sm text-green-800"
-          >
-            <CheckCircle2 size={18} />
-            <span>{message}</span>
-            <button
-              type="button"
-              onClick={() => setMessage("")}
-              className="ml-auto"
-              aria-label="Fermer le message"
-            >
-              <X size={16} />
-            </button>
-          </div>
-        )}
+        {/* ===== STEP 1: Identité ===== */}
+        {step === 1 && (
+          <Card>
+            <CardHeader icon={<IdCard className="h-5 w-5" />}>
+              <h3 className="font-display text-lg font-semibold">Identité</h3>
+              <p className="text-xs text-black/40">Informations personnelles et pièce d&apos;identité</p>
+            </CardHeader>
+            <CardBody className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input id="nom" label="Nom" required value={form.nom} onChange={(e) => update("nom", e.target.value)} placeholder="Votre nom" />
+                <Input id="prenom" label="Prénom" required value={form.prenom} onChange={(e) => update("prenom", e.target.value)} placeholder="Votre prénom" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input id="dateNaissance" label="Date de naissance" type="date" required value={form.dateNaissance} onChange={(e) => update("dateNaissance", e.target.value)} />
+                <Input id="lieuNaissance" label="Lieu de naissance" required value={form.lieuNaissance} onChange={(e) => update("lieuNaissance", e.target.value)} placeholder="Ville de naissance" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Select id="nationalite" label="Nationalité" required placeholder="— Sélectionner —" options={NATIONALITES} value={form.nationalite} onChange={(e) => update("nationalite", e.target.value)} />
+                <Input id="profession" label="Profession" value={form.profession} onChange={(e) => update("profession", e.target.value)} placeholder="Votre profession" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Input id="adresse" label="Adresse" required value={form.adresse} onChange={(e) => update("adresse", e.target.value)} placeholder="Votre adresse" />
+                <Input id="ville" label="Ville de résidence" required value={form.ville} onChange={(e) => update("ville", e.target.value)} placeholder="Ville" />
+                <Input id="bp" label="Boîte Postale (BP)" value={form.bp} onChange={(e) => update("bp", e.target.value)} placeholder="BP (optionnel)" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Select id="typePiece" label="Type de pièce" required options={PIECES} value={form.typePiece} onChange={(e) => update("typePiece", e.target.value)} />
+                <Input id="numeroPiece" label="N° de la pièce" required value={form.numeroPiece} onChange={(e) => update("numeroPiece", e.target.value)} placeholder="Ex: B1234567" />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input id="delivreLe" label="Délivré le" type="date" required value={form.delivreLe} onChange={(e) => update("delivreLe", e.target.value)} />
+                <Input id="delivreA" label="Délivré à" required value={form.delivreA} onChange={(e) => update("delivreA", e.target.value)} placeholder="Lieu de délivrance" />
+              </div>
 
-        {/* Indicateurs */}
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              label: "Total affiché",
-              value: fiches.length,
-              color: "text-slate-900",
-            },
-            {
-              label: "En attente",
-              value: fiches.filter(
-                (f) => f.statut === "pending"
-              ).length,
-              color: "text-amber-700",
-            },
-            {
-              label: "Validées",
-              value: fiches.filter(
-                (f) => f.statut === "registered"
-              ).length,
-              color: "text-green-700",
-            },
-            {
-              label: "Refusées",
-              value: fiches.filter(
-                (f) => f.statut === "refused"
-              ).length,
-              color: "text-red-700",
-            },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-xl border bg-white p-5 shadow-sm"
-            >
-              <p className="text-sm text-slate-500">
-                {item.label}
-              </p>
-              <p
-                className={`mt-2 text-3xl font-bold ${item.color}`}
-              >
-                {item.value}
-              </p>
-            </div>
-          ))}
-        </section>
-
-        {/* Liste des fiches */}
-        <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b p-4 md:flex-row">
-            <div className="relative flex-1">
-              <Search
-                size={18}
-                className="absolute left-3 top-1/2
-                  -translate-y-1/2 text-slate-400"
-              />
-
-              <input
-                value={recherche}
-                onChange={(e) => setRecherche(e.target.value)}
-                placeholder="Rechercher un client, une référence..."
-                className="w-full rounded-lg border py-2 pl-10
-                  pr-3 text-sm outline-none focus:border-red-500"
-              />
-            </div>
-
-            <select
-              value={statut}
-              onChange={(e) => setStatut(e.target.value)}
-              className="rounded-lg border px-3 py-2 text-sm
-                outline-none focus:border-red-500"
-              aria-label="Filtrer par statut"
-            >
-              <option value="all">Tous les statuts</option>
-              <option value="pending">En attente</option>
-              <option value="registered">Validées</option>
-              <option value="refused">Refusées</option>
-              <option value="transmitted">
-                Transmises à la police
-              </option>
-            </select>
-          </div>
-
-          {loading ? (
-            <div className="flex items-center justify-center gap-2 p-12 text-slate-500">
-              <LoaderCircle
-                className="animate-spin"
-                size={20}
-              />
-              Chargement des fiches...
-            </div>
-          ) : fichesFiltrees.length === 0 ? (
-            <div className="flex flex-col items-center gap-2 p-12 text-center">
-              <FileText size={34} className="text-slate-300" />
-              <p className="font-medium text-slate-700">
-                Aucune fiche trouvée
-              </p>
-              <p className="text-sm text-slate-500">
-                Modifie le filtre ou la recherche.
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1050px] text-left text-sm">
-                <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">Client</th>
-                    <th className="px-4 py-3">
-                      Pièce d'identité
-                    </th>
-                    <th className="px-4 py-3">Chambre</th>
-                    <th className="px-4 py-3">Séjour</th>
-                    <th className="px-4 py-3">Statut</th>
-                    <th className="px-4 py-3">Actions</th>
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y">
-                  {fichesFiltrees.map((fiche) => (
-                    <tr
-                      key={fiche._id}
-                      className="align-top hover:bg-slate-50"
-                    >
-                      <td className="px-4 py-4">
-                        <p className="font-semibold text-slate-900">
-                          {[fiche.prenom, fiche.nom]
-                            .filter(Boolean)
-                            .join(" ") || "Client"}
-                        </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          {fiche.nationalite || "Nationalité inconnue"}
-                        </p>
-
-                        <p className="mt-1 text-xs text-slate-500">
-                          {fiche.client?.email ||
-                            fiche.email ||
-                            "E-mail non disponible"}
-                        </p>
-
-                        {fiche.reference && (
-                          <p className="mt-1 font-mono text-xs text-slate-400">
-                            {fiche.reference}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <p>
-                          {fiche.typePiece || "CNIB"} n°{" "}
-                          {fiche.numeroPiece || "—"}
-                        </p>
-
-                        {fiche.cnibFichier ? (
-                          <span className="mt-1 inline-flex items-center gap-1 text-xs text-green-700">
-                            <ShieldCheck size={13} />
-                            Pièce disponible
-                          </span>
-                        ) : (
-                          <span className="mt-1 block text-xs text-red-600">
-                            Pièce manquante
-                          </span>
-                        )}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        {fiche.chambreNumero || "—"}
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <p>{formatDate(fiche.dateEntree)}</p>
-                        <p className="mt-1 text-xs text-slate-400">
-                          → {formatDate(fiche.dateSortie)}
-                        </p>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex whitespace-nowrap
-                            rounded-full px-2.5 py-1 text-xs
-                            font-medium ${statutStyle(fiche.statut)}`}
-                        >
-                          {statutLabel(fiche.statut)}
-                        </span>
-                      </td>
-
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          {/* Consulter le formulaire AVANT validation */}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setFicheSelectionnee(fiche)
-                            }
-                            className="inline-flex items-center gap-1
-                              rounded-md border border-blue-200
-                              bg-blue-50 px-2.5 py-1.5 text-xs
-                              text-blue-700 hover:bg-blue-100"
-                          >
-                            <Eye size={14} />
-                            Formulaire
-                          </button>
-
-                          {/* Pièce d'identité */}
-                          <button
-                            type="button"
-                            disabled={!fiche.cnibFichier}
-                            onClick={() =>
-                              ouvrirDocument(fiche, "cnib")
-                            }
-                            className="inline-flex items-center gap-1
-                              rounded-md border px-2.5 py-1.5
-                              text-xs hover:bg-slate-100
-                              disabled:cursor-not-allowed
-                              disabled:opacity-40"
-                          >
-                            <Eye size={14} />
-                            Pièce
-                          </button>
-
-                          {/* PDF officiel uniquement s'il existe */}
-                          {fiche.pdfFiche && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                ouvrirDocument(fiche, "fiche-pdf")
-                              }
-                              className="inline-flex items-center gap-1
-                                rounded-md border px-2.5 py-1.5
-                                text-xs hover:bg-slate-100"
-                            >
-                              <FileText size={14} />
-                              Voir PDF
-                            </button>
-                          )}
-
-                          {/* Actions de décision */}
-                          {fiche.statut === "pending" && (
-                            <>
-                              <button
-                                type="button"
-                                disabled={
-                                  actionId === fiche._id ||
-                                  !fiche.cnibFichier
-                                }
-                                onClick={() =>
-                                  traiterFiche(fiche, "valider")
-                                }
-                                title={
-                                  !fiche.cnibFichier
-                                    ? "La pièce d'identité est manquante"
-                                    : "Valider après vérification"
-                                }
-                                className="inline-flex items-center gap-1
-                                  rounded-md bg-green-600 px-2.5
-                                  py-1.5 text-xs text-white
-                                  hover:bg-green-700
-                                  disabled:cursor-not-allowed
-                                  disabled:opacity-50"
-                              >
-                                <CheckCircle2 size={14} />
-                                Valider
-                              </button>
-
-                              <button
-                                type="button"
-                                disabled={actionId === fiche._id}
-                                onClick={() =>
-                                  traiterFiche(fiche, "refuser")
-                                }
-                                className="inline-flex items-center gap-1
-                                  rounded-md bg-red-600 px-2.5
-                                  py-1.5 text-xs text-white
-                                  hover:bg-red-700
-                                  disabled:opacity-50"
-                              >
-                                <XCircle size={14} />
-                                Refuser
-                              </button>
-                            </>
-                          )}
-
-                          {/* Transmission après validation */}
-                          {fiche.statut === "registered" && (
-                            <button
-                              type="button"
-                              disabled={actionId === fiche._id}
-                              onClick={() =>
-                                traiterFiche(
-                                  fiche,
-                                  "transmettre-police"
-                                )
-                              }
-                              className="inline-flex items-center gap-1
-                                rounded-md bg-slate-900 px-2.5
-                                py-1.5 text-xs text-white
-                                hover:bg-slate-700
-                                disabled:opacity-50"
-                            >
-                              <Send size={14} />
-                              Transmettre
-                            </button>
-                          )}
-
-                          {actionId === fiche._id && (
-                            <LoaderCircle
-                              size={16}
-                              className="animate-spin text-slate-500"
-                            />
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </main>
-
-      {/* Fenêtre de consultation du formulaire */}
-      {ficheSelectionnee && (
-        <div
-          className="fixed inset-0 z-50 flex items-center
-            justify-center bg-slate-950/60 p-3 sm:p-6"
-          onClick={() => setFicheSelectionnee(null)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="titre-formulaire"
-            className="max-h-[92vh] w-full max-w-4xl
-              overflow-y-auto rounded-2xl bg-white shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* En-tête de la fenêtre */}
-            <div className="sticky top-0 z-10 flex items-center
-              justify-between gap-3 border-b bg-white p-4 sm:p-6">
+              {/* File upload CNIB */}
               <div>
-                <div className="flex items-center gap-2">
-                  <FileText
-                    size={22}
-                    className="text-red-600"
+                <label className="mb-1.5 block text-sm font-medium text-[#172033]/80">
+                  Scan / Photo de la pièce d&apos;identité (CNIB ou Passeport PDF/Image) <span className="text-red-500">*</span>
+                </label>
+                <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed border-black/10 bg-black/[0.02] px-6 py-8 transition hover:border-[#009e49]/40 hover:bg-[#009e49]/5">
+                  <Upload className="h-8 w-8 text-black/25" />
+                  <span className="text-sm text-black/40">
+                    {form.cnibFile
+                      ? form.cnibFile.name
+                      : "Glissez votre fichier ici ou cliquez pour parcourir"}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,.pdf"
+                    className="hidden"
+                    onChange={(e) =>
+                      update("cnibFile", e.target.files?.[0] || null)
+                    }
                   />
-                  <h2
-                    id="titre-formulaire"
-                    className="text-lg font-bold text-slate-900 sm:text-xl"
-                  >
-                    Formulaire hôtelier
-                  </h2>
-                </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  Vérification avant décision
-                </p>
+                </label>
               </div>
+            </CardBody>
+          </Card>
+        )}
 
-              <button
-                type="button"
-                onClick={() => setFicheSelectionnee(null)}
-                className="rounded-lg border p-2 hover:bg-slate-100"
-                aria-label="Fermer le formulaire"
-              >
-                <X size={20} />
-              </button>
-            </div>
+        {/* ===== STEP 2: Voyage ===== */}
+        {step === 2 && (
+          <Card>
+            <CardHeader icon={<Plane className="h-5 w-5" />}>
+              <h3 className="font-display text-lg font-semibold">Voyage</h3>
+              <p className="text-xs text-black/40">Informations sur votre déplacement</p>
+            </CardHeader>
+            <CardBody className="space-y-4">
+              <Input id="venantDe" label="Venant de (Provenance)" required value={form.venantDe} onChange={(e) => update("venantDe", e.target.value)} placeholder="Ville ou pays d'origine" />
+              <Input id="allantA" label="Allant à (Destination suivante)" required value={form.allantA} onChange={(e) => update("allantA", e.target.value)} placeholder="Prochaine destination" />
+              <Select id="motif" label="Motif du séjour" required placeholder="— Sélectionner —" options={MOTIFS} value={form.motif} onChange={(e) => update("motif", e.target.value)} />
+            </CardBody>
+          </Card>
+        )}
 
-            <div className="space-y-6 p-4 sm:p-6">
-              {/* Statut */}
-              <div className="flex flex-wrap items-center
-                justify-between gap-3 rounded-xl border p-4">
-                <div>
-                  <p className="text-xs text-slate-500">
-                    Référence de la fiche
-                  </p>
-                  <p className="mt-1 font-mono font-semibold text-slate-900">
-                    {ficheSelectionnee.reference || "Non attribuée"}
-                  </p>
-                </div>
-
-                <span
-                  className={`inline-flex rounded-full px-3 py-1.5
-                    text-xs font-semibold
-                    ${statutStyle(ficheSelectionnee.statut)}`}
-                >
-                  {statutLabel(ficheSelectionnee.statut)}
-                </span>
+        {/* ===== STEP 3: Séjour ===== */}
+        {step === 3 && (
+          <Card>
+            <CardHeader icon={<BedDouble className="h-5 w-5" />}>
+              <h3 className="font-display text-lg font-semibold">Séjour</h3>
+              <p className="text-xs text-black/40">Détails de votre hébergement</p>
+            </CardHeader>
+            <CardBody className="space-y-4">
+              <Select
+                id="hotelId"
+                label="Hôtel"
+                required
+                placeholder="— Sélectionner un hôtel —"
+                options={hotels.map((h) => ({
+                  value: h._id,
+                  label: h.nomHotel,
+                }))}
+                value={form.hotelId}
+                onChange={(e) => update("hotelId", e.target.value)}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Input id="dateEntree" label="Date d'entrée" type="date" required value={form.dateEntree} onChange={(e) => update("dateEntree", e.target.value)} />
+                <Input id="dateSortie" label="Date de sortie" type="date" required value={form.dateSortie} onChange={(e) => update("dateSortie", e.target.value)} />
               </div>
+              <Input id="chambreNumero" label="N° de chambre" required value={form.chambreNumero} onChange={(e) => update("chambreNumero", e.target.value)} placeholder="Ex: 102" />
+              <Select id="transport" label="Moyen de transport" required placeholder="— Sélectionner —" options={TRANSPORTS} value={form.transport} onChange={(e) => update("transport", e.target.value)} />
+              {form.transport === "Voiture" && (
+                <Input id="plaque" label="N° Plaque minéralogique" value={form.plaque} onChange={(e) => update("plaque", e.target.value)} placeholder="Ex: 11 BF 2200 A" />
+              )}
+            </CardBody>
+          </Card>
+        )}
 
-              {/* Identification */}
-              <section>
-                <h3 className="mb-3 flex items-center gap-2
-                  border-b pb-3 font-bold text-slate-900">
-                  <UserRound size={18} className="text-red-600" />
-                  I. Identification du client
-                </h3>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <Champ
-                    label="Nom"
-                    value={ficheSelectionnee.nom}
-                  />
-                  <Champ
-                    label="Prénom"
-                    value={ficheSelectionnee.prenom}
-                  />
-                  <Champ
-                    label="Nationalité"
-                    value={ficheSelectionnee.nationalite}
-                  />
-                  <Champ
-                    label="Date de naissance"
-                    value={
-                      ficheSelectionnee.dateNaissance
-                        ? formatDate(ficheSelectionnee.dateNaissance)
-                        : undefined
-                    }
-                  />
-                  <Champ
-                    label="Type de pièce"
-                    value={ficheSelectionnee.typePiece}
-                  />
-                  <Champ
-                    label="Numéro de pièce"
-                    value={ficheSelectionnee.numeroPiece}
-                  />
-                  <Champ
-                    label="Adresse / quartier"
-                    value={
-                      [
-                        ficheSelectionnee.adresse,
-                        ficheSelectionnee.quartier,
-                      ]
-                        .filter(Boolean)
-                        .join(", ") || undefined
-                    }
-                  />
-                  <Champ
-                    label="Secteur"
-                    value={ficheSelectionnee.secteur}
-                  />
-                  <Champ
-                    label="Ville"
-                    value={ficheSelectionnee.ville}
-                  />
-                  <Champ
-                    label="E-mail"
-                    value={
-                      ficheSelectionnee.client?.email ||
-                      ficheSelectionnee.email
-                    }
-                  />
-                  <Champ
-                    label="Téléphone"
-                    value={
-                      ficheSelectionnee.telephone ||
-                      ficheSelectionnee.client?.telephone
-                    }
-                  />
-                </div>
-              </section>
-
-              {/* Séjour */}
-              <section>
-                <h3 className="mb-3 flex items-center gap-2
-                  border-b pb-3 font-bold text-slate-900">
-                  <CalendarDays
-                    size={18}
-                    className="text-red-600"
-                  />
-                  II. Informations sur le séjour
-                </h3>
-
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <Champ
-                    label="Numéro de chambre"
-                    value={ficheSelectionnee.chambreNumero}
-                  />
-                  <Champ
-                    label="Date d'arrivée"
-                    value={
-                      ficheSelectionnee.dateEntree
-                        ? formatDate(ficheSelectionnee.dateEntree)
-                        : undefined
-                    }
-                  />
-                  <Champ
-                    label="Date de départ"
-                    value={
-                      ficheSelectionnee.dateSortie
-                        ? formatDate(ficheSelectionnee.dateSortie)
-                        : undefined
-                    }
-                  />
-                  <Champ
-                    label="Date de soumission"
-                    value={
-                      ficheSelectionnee.createdAt
-                        ? formatDate(ficheSelectionnee.createdAt)
-                        : undefined
-                    }
-                  />
-                </div>
-              </section>
-
-              {/* Documents */}
-              <section>
-                <h3 className="mb-3 flex items-center gap-2
-                  border-b pb-3 font-bold text-slate-900">
-                  <Hotel size={18} className="text-red-600" />
-                  III. Documents justificatifs
-                </h3>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex flex-col justify-between
-                    gap-3 rounded-xl border p-4">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        Pièce d'identité
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {ficheSelectionnee.cnibFichier
-                          ? "Document disponible"
-                          : "Aucun fichier enregistré"}
-                      </p>
-                    </div>
-
+        {/* ===== STEP 4: Paiement + Résumé ===== */}
+        {step === 4 && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader icon={<CreditCard className="h-5 w-5" />}>
+                <h3 className="font-display text-lg font-semibold">Mode de paiement</h3>
+                <p className="text-xs text-black/40">Comment souhaitez-vous régler ?</p>
+              </CardHeader>
+              <CardBody>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  {PAIEMENTS.map((p) => (
                     <button
+                      key={p.value}
                       type="button"
-                      disabled={!ficheSelectionnee.cnibFichier}
-                      onClick={() =>
-                        ouvrirDocument(ficheSelectionnee, "cnib")
-                      }
-                      className="inline-flex items-center
-                        justify-center gap-2 rounded-lg border
-                        px-4 py-2 text-sm font-medium
-                        hover:bg-slate-50 disabled:opacity-40"
+                      onClick={() => update("modePaiement", p.value)}
+                      className={cn(
+                        "flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition",
+                        form.modePaiement === p.value
+                          ? "border-[#009e49] bg-[#009e49]/10"
+                          : "border-black/10 hover:border-black/20"
+                      )}
                     >
-                      <Eye size={16} />
-                      Consulter la pièce
+                      <span className="text-2xl">{p.icon}</span>
+                      <span className="text-xs font-medium text-center">
+                        {p.label}
+                      </span>
                     </button>
-                  </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
 
-                  <div className="flex flex-col justify-between
-                    gap-3 rounded-xl border p-4">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        Fiche hôtelière PDF
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {ficheSelectionnee.pdfFiche
-                          ? "PDF officiel disponible"
-                          : "Le PDF officiel n'est pas encore disponible"}
-                      </p>
+            {/* Résumé */}
+            <Card>
+              <CardHeader icon={<FileText className="h-5 w-5" />}>
+                <h3 className="font-display text-lg font-semibold">Récapitulatif</h3>
+              </CardHeader>
+              <CardBody>
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                  {[
+                    ["Nom complet", `${form.prenom} ${form.nom}`],
+                    ["Nationalité", form.nationalite],
+                    ["Pièce", `${form.typePiece} — ${form.numeroPiece} (Délivré le ${form.delivreLe})`],
+                    ["Provenance (Venant de)", form.venantDe],
+                    ["Destination (Allant à)", form.allantA],
+                    ["Motif", form.motif],
+                    [
+                      "Hôtel",
+                      hotels.find((h) => h._id === form.hotelId)?.nomHotel || "—",
+                    ],
+                    ["Chambre", form.chambreNumero],
+                    ["Entrée", form.dateEntree],
+                    ["Sortie", form.dateSortie],
+                    ["Transport", form.transport],
+                    [
+                      "Paiement",
+                      PAIEMENTS.find((p) => p.value === form.modePaiement)
+                        ?.label || "",
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label} className="flex flex-col">
+                      <dt className="text-xs text-black/40">{label}</dt>
+                      <dd className="font-medium text-[#172033]">{value || "—"}</dd>
                     </div>
-
-                    {ficheSelectionnee.pdfFiche ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          ouvrirDocument(
-                            ficheSelectionnee,
-                            "fiche-pdf"
-                          )
-                        }
-                        className="inline-flex items-center
-                          justify-center gap-2 rounded-lg border
-                          px-4 py-2 text-sm font-medium
-                          hover:bg-slate-50"
-                      >
-                        <FileText size={16} />
-                        Consulter le PDF
-                      </button>
-                    ) : (
-                      <p className="rounded-lg bg-slate-50 p-3
-                        text-xs text-slate-500">
-                        La prévisualisation ci-dessus permet de
-                        vérifier les données avant validation.
-                        Elle ne remplace pas le PDF officiel.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              {/* Motif de refus */}
-              {ficheSelectionnee.statut === "refused" &&
-                ficheSelectionnee.motifRefus && (
-                  <section className="rounded-xl border
-                    border-red-200 bg-red-50 p-4">
-                    <h3 className="font-semibold text-red-800">
-                      Motif du refus
-                    </h3>
-                    <p className="mt-2 text-sm text-red-700">
-                      {ficheSelectionnee.motifRefus}
-                    </p>
-                  </section>
-                )}
-
-              {/* Avertissement avant décision */}
-              {ficheSelectionnee.statut === "pending" && (
-                <div className="rounded-xl border border-amber-200
-                  bg-amber-50 p-4 text-sm text-amber-900">
-                  Vérifie l'identité du client, les dates de séjour,
-                  la chambre et les documents justificatifs avant
-                  de prendre une décision.
-                </div>
-              )}
-            </div>
-
-            {/* Actions dans la fenêtre */}
-            <div className="sticky bottom-0 flex flex-wrap
-              justify-between gap-3 border-t bg-white p-4 sm:p-5">
-              <button
-                type="button"
-                onClick={() => setFicheSelectionnee(null)}
-                className="rounded-lg border px-4 py-2.5
-                  text-sm font-medium hover:bg-slate-50"
-              >
-                Fermer
-              </button>
-
-              {ficheSelectionnee.statut === "pending" && (
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={actionId === ficheSelectionnee._id}
-                    onClick={() =>
-                      traiterFiche(ficheSelectionnee, "refuser")
-                    }
-                    className="inline-flex items-center gap-2
-                      rounded-lg bg-red-600 px-4 py-2.5
-                      text-sm font-semibold text-white
-                      hover:bg-red-700 disabled:opacity-50"
-                  >
-                    {actionId === ficheSelectionnee._id ? (
-                      <LoaderCircle
-                        size={16}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <XCircle size={16} />
-                    )}
-                    Refuser
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={
-                      actionId === ficheSelectionnee._id ||
-                      !ficheSelectionnee.cnibFichier
-                    }
-                    title={
-                      !ficheSelectionnee.cnibFichier
-                        ? "La pièce d'identité est manquante"
-                        : "Valider après vérification"
-                    }
-                    onClick={() =>
-                      traiterFiche(ficheSelectionnee, "valider")
-                    }
-                    className="inline-flex items-center gap-2
-                      rounded-lg bg-green-600 px-4 py-2.5
-                      text-sm font-semibold text-white
-                      hover:bg-green-700 disabled:cursor-not-allowed
-                      disabled:opacity-50"
-                  >
-                    {actionId === ficheSelectionnee._id ? (
-                      <LoaderCircle
-                        size={16}
-                        className="animate-spin"
-                      />
-                    ) : (
-                      <CheckCircle2 size={16} />
-                    )}
-                    Valider la fiche
-                  </button>
-                </div>
-              )}
-
-              {ficheSelectionnee.statut === "registered" && (
-                <button
-                  type="button"
-                  disabled={actionId === ficheSelectionnee._id}
-                  onClick={() =>
-                    traiterFiche(
-                      ficheSelectionnee,
-                      "transmettre-police"
-                    )
-                  }
-                  className="inline-flex items-center gap-2
-                    rounded-lg bg-slate-900 px-4 py-2.5
-                    text-sm font-semibold text-white
-                    hover:bg-slate-700 disabled:opacity-50"
-                >
-                  <Send size={16} />
-                  Transmettre à la police
-                </button>
-              )}
-            </div>
+                  ))}
+                </dl>
+              </CardBody>
+            </Card>
           </div>
-        </div>
-      )}
+        )}
 
-      <InstitutionalFooter />
+        {/* Navigation buttons */}
+        <div className="mt-8 flex items-center justify-between">
+          {step > 1 ? (
+            <Button variant="outline" onClick={prev}>
+              Précédent
+            </Button>
+          ) : (
+            <div />
+          )}
+          {step < 4 ? (
+            <Button onClick={next}>Suivant</Button>
+          ) : (
+            <Button onClick={handleSubmit} loading={submitting} size="lg">
+              Envoyer ma fiche
+            </Button>
+          )}
+        </div>
+      </main>
     </div>
   );
 }

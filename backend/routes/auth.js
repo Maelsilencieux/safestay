@@ -222,7 +222,7 @@ router.post('/forgot-password', [
         user.resetTokenExpire = Date.now() + 30 * 60 * 1000;
         await user.save({ validateBeforeSave: false });
 
-        const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:5500'}/res-mdp.html?token=${rawToken}&email=${encodeURIComponent(mail)}`;
+        const resetUrl = `${process.env.CLIENT_URL || 'http://localhost:3000'}/reset-password?token=${rawToken}&email=${encodeURIComponent(mail)}`;
 
         // Envoi de l'email de réinitialisation
         email.sendResetPassword(user, resetUrl).catch(console.error);
@@ -242,15 +242,16 @@ router.post('/forgot-password', [
 // ============================================================
 router.get('/verify-reset-token', async (req, res) => {
     try {
-        const { token, email: mail } = req.query;
-        if (!token || !mail) {
+        const { token, email } = req.query;
+       
+        if (!token || !email) {
             return res.status(400).json({ success: false, message: 'Lien invalide.' });
         }
 
         const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
         const user = await User.findOne({
-            email: mail,
+            email: email,
             resetToken: hashedToken,
             resetTokenExpire: { $gt: Date.now() },
         });

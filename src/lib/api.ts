@@ -149,6 +149,7 @@ export const Auth = {
   },
   async verifyResetToken(token: string, email: string) {
     const q = new URLSearchParams({ token, email }).toString();
+    console.debug(q)
     return apiCall("GET", `/auth/verify-reset-token?${q}`);
   },
   async resetPassword(token: string, email: string, password: string) {
