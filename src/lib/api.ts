@@ -281,7 +281,7 @@ export const Admin = {
     if (statut === "approved") {
       return this.approuver(id);
     }
-    return this.rejeter(id);
+    return this.rejeter(id, motif);
   },
 
   async toggleUser(userId: string) {
@@ -290,6 +290,20 @@ export const Admin = {
 
   async deleteUser(userId: string) {
     return apiCall("DELETE", `/admin/users/${userId}`);
+  },
+
+    async createHotel(data: {
+    nomHotel: string;
+    telephone: string;
+    rccm: string;
+    ville: string;
+    email?: string;
+  }) {
+    return apiCall("POST", "/admin/hotels", data);
+  },
+
+  async deleteUserPermanently(userId: string) {
+    return apiCall("DELETE", `/admin/users/${userId}/definitif`);
   },
 
   async documents() {
@@ -312,10 +326,23 @@ export const Admin = {
     return `${API_BASE}/admin/documents/${id}/download-fiche`;
   },
 
+  async approveHotel(
+  id: string,
+  statut: "approved" | "rejected",
+  motif?: string
+) {
+  if (statut === "approved") {
+    return this.approuver(id);
+  }
+  return this.rejeter(id, motif);
+},
+
   async deleteDocument(id: string) {
     return apiCall("DELETE", `/admin/documents/${id}`);
   },
 };
+
+
 
 // ===== NOTIFICATIONS =====
 export const Notifications = {

@@ -535,6 +535,44 @@ router.get('/hotel/stats', protect, authorize('hotel'), hotelApproved, async (re
 });
 
 // ============================================================
+//  POST /api/fiches/hotel/supprimer
+//  Supprime des fiches (+ CNIB et PDF physiques) de CET hôtel
+// ============================================================
+router.post('/hotel/supprimer', protect, authorize('hotel'), hotelApproved, async (req, res) => {
+  try {
+    const { ficheIds } = req.body;
+    if (!Array.isArray(ficheIds) || ficheIds.length === 0) {
+      return res.status(400).json({ success: false, message: 'Aucune fiche sélectionnée.' });
+    }
+
+    // Sécurité : uniquement les fiches appartenant à cet hôtel
+    const fiches = await Fiche.find({ _id: { $in: ficheIds }, hotelUser: req.user._id });
+
+    if (fiches.length === 0) {
+      return res.status(404).json({ success: false, message: 'Aucune fiche trouvée.' });
+    }
+
+    for (const f of fiches) {
+      if (f.cnibFichier) {
+        fs.unlink(path.join(UPLOAD_ROOT, 'cnib', f.cnibFichier), (e) => e && console.error(e.message));
+      }
+      if (f.pdfFiche) {
+        fs.unlink(path.join(UPLOAD_ROOT, 'fiches', f.pdfFiche), (e) => e && console.error(e.message));
+      }
+    }
+
+    await Fiche.deleteMany({ _id: { $in: fiches.map(f => f._id) } });
+
+    res.json({
+      success: true,
+      message: `${fiches.length} fiche(s) supprimée(s).`,
+      count: fiches.length,
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+// ============================================================
 
 //  GET /api/fiches/:id
 

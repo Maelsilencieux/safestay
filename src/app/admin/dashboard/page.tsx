@@ -14,6 +14,8 @@ import {
   Landmark,
   ArrowRight,
 } from "lucide-react";
+import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
+import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
 import { useAuth } from "@/context/AuthContext";
 import { Admin } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -86,76 +88,11 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <aside className="fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-black/10 bg-white">
-        <div className="burkina-stripe" />
-        <div className="border-b border-slate-100 px-6 py-5">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-burkina-green text-white">
-              <ShieldCheck className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="text-[9px] font-bold uppercase tracking-widest text-burkina-red">
-                Burkina Faso
-              </p>
-              <p className="font-bold text-slate-900">SafeStay</p>
-            </div>
-          </div>
-          <div className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            <Landmark className="mr-1 inline h-3.5 w-3.5" /> Administration de
-            la plateforme
-          </div>
-        </div>
-        <nav className="flex-1 space-y-1 px-3 py-5">
-          <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            Pilotage
-          </p>
-          {[
-            {
-              href: "/admin/dashboard",
-              icon: LayoutDashboard,
-              label: "Tableau de bord",
-            },
-            { href: "/admin/hotels", icon: Hotel, label: "Hotels" },
-            { href: "/admin/clients", icon: Users, label: "utilisateurs" },
-            {
-              href: "/admin/fiches",
-              icon: FileText,
-              label: "Fiches hôtelières",
-            },
-            {
-              href: "/admin/documents",
-              icon: FileText,
-              label: "Documents et pièces d'identité",
-            },
-          ].map((item) => (
-            <a
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center gap-3 rounded-lg border-l-4 px-4 py-3 text-sm font-medium transition",
-                item.href === "/admin/dashboard"
-                  ? "border-burkina-green bg-burkina-green/10 text-burkina-green"
-                  : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-900",
-              )}
-            >
-              <item.icon className="h-5 w-5" />
-              {item.label}
-            </a>
-          ))}
-        </nav>
-        <div className="border-t border-slate-100 p-4">
-          <button
-            onClick={logout}
-            className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-sm text-slate-500 hover:bg-red-50 hover:text-burkina-red"
-          >
-            <LogOut className="h-5 w-5" />
-            Déconnexion
-          </button>
-        </div>
-      </aside>
-
-      <main className="ml-72 flex-1">
+    <>
+     <InstitutionalHeader/>
+    
+     
+      <main >
         <header className="border-b border-slate-200 bg-white">
           <div className="burkina-stripe" />
           <div className="flex items-center justify-between px-8 py-5">
@@ -264,6 +201,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </main>
-    </div>
+      <InstitutionalFooter/>
+    </>
   );
 }

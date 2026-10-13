@@ -2,25 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  FileText,
-  CheckCircle2,
-  Clock,
-  XCircle,
-} from "lucide-react";
-
-import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
-import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
+import { FileText, CheckCircle2, Clock, XCircle } from "lucide-react";
 
 import { useAuth } from "@/context/AuthContext";
 import { Fiches, Hotels } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import Button from "@/components/ui/Button";
-import HotelSidebar from "@/components/layout/HotelSidebar";
-
 
 export default function HotelDashboard() {
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState({
     total: 0,
@@ -32,19 +22,12 @@ export default function HotelDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!user) router.push("/login");
-      else if (user.role !== "hotel" && user.role !== "admin")
-        router.push("/fiche");
-    }
-  }, [user, authLoading, router]);
-
-  useEffect(() => {
     async function load() {
       const [statsRes, hotelRes] = await Promise.all([
         Fiches.hotelStats(),
         Hotels.getMonHotel(),
       ]);
+
       if (statsRes.ok && statsRes.data.success !== false) {
         const d =
           (statsRes.data as any).stats ||
@@ -52,12 +35,14 @@ export default function HotelDashboard() {
           statsRes.data ||
           {};
         setStats({
-          total: d.total || 0,
+          // Le backend renvoie "totalClients" (= nombre total de fiches)
+          total: d.total ?? d.totalClients ?? 0,
           pending: d.pending || 0,
           validated: d.validated || d.registered || 0,
           refused: d.refused || 0,
         });
       }
+
       if (hotelRes.ok && hotelRes.data.success !== false) {
         const h =
           (hotelRes.data as any).hotel ||
@@ -70,9 +55,9 @@ export default function HotelDashboard() {
     if (user) load();
   }, [user]);
 
-  if (authLoading || loading) {
+  if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
+      <div className="flex min-h-[60vh] items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#009e49] border-t-transparent" />
       </div>
     );
@@ -106,79 +91,68 @@ export default function HotelDashboard() {
   ];
 
   return (
-    <>
-    <InstitutionalHeader/>
-    <div className="flex min-h-screen bg-slate-50">
-    
-      
-    
-      <HotelSidebar />
+    <div className="p-8">
+      <div className="mb-8 border-b border-slate-200 pb-6">
+        <p className="text-xs font-bold uppercase tracking-widest text-burkina-red">
+          Portail établissement
+        </p>
+        <h1 className="font-display text-3xl font-bold text-slate-900">
+          🏨 {hotelName}
+        </h1>
+        <p className="mt-1 text-sm text-slate-900/50">
+          Espace établissement hôtelier · Bienvenue,{" "}
+          {user?.prenom || user?.nomHotel || "Gestionnaire"}
+        </p>
+      </div>
 
-      <main className="ml-64 flex-1 p-8">
-        <div className="mb-8 border-b border-slate-200 pb-6">
-          <p className="text-xs font-bold uppercase tracking-widest text-burkina-red">Portail établissement</p>
-          <h1 className="font-display text-3xl font-bold text-slate-900">
-            🏨 {hotelName}
-          </h1>
-          <p className="mt-1 text-sm text-slate-900/50">
-            Espace établissement hôtelier · Bienvenue, {user?.prenom || user?.nomHotel || "Gestionnaire"}
-          </p>
-        </div>
-
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {cards.map((c) => (
-            <div
-              key={c.label}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-black/40">{c.label}</p>
-                  <p className="mt-1 font-display text-3xl font-bold text-slate-900">
-                    {c.value}
-                  </p>
-                </div>
-                <div
-                  className={cn(
-                    "flex h-12 w-12 items-center justify-center rounded-xl",
-                    c.color
-                  )}
-                >
-                  <c.icon className="h-6 w-6" />
-                </div>
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((c) => (
+          <div
+            key={c.label}
+            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-black/40">{c.label}</p>
+                <p className="mt-1 font-display text-3xl font-bold text-slate-900">
+                  {c.value}
+                </p>
+              </div>
+              <div
+                className={cn(
+                  "flex h-12 w-12 items-center justify-center rounded-xl",
+                  c.color,
+                )}
+              >
+                <c.icon className="h-6 w-6" />
               </div>
             </div>
-          ))}
-        </div>
-
-        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="font-display text-xl font-semibold text-slate-900">
-            Actions rapides
-          </h2>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button onClick={() => router.push("/hotel/fiches")}>
-              Voir les fiches
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => router.push("/hotel/documents")}
-            >
-              Documents
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => router.push("/hotel/chambres")}
-            >
-              Gérer les chambres
-            </Button>
           </div>
-        </div>
-      </main>
-  
-    
-    </div>
-    <InstitutionalFooter/>
-    </>
+        ))}
+      </div>
 
+      <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-display text-xl font-semibold text-slate-900">
+          Actions rapides
+        </h2>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button onClick={() => router.push("/hotel/fiches")}>
+            Voir les fiches
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/hotel/documents")}
+          >
+            Documents
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => router.push("/hotel/chambres")}
+          >
+            Gérer les chambres
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

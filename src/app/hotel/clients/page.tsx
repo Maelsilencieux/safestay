@@ -12,10 +12,10 @@ import {
   AlertCircle,
   Download,
   ArrowLeft,
+  Trash2,
 } from "lucide-react";
-
-import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
-import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
+import Pagination from "@/components/ui/Pagination";
+import { usePagination } from "@/lib/usePagination";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/backend";
 
@@ -54,11 +54,19 @@ type ClientValide = {
   fiches: Fiche[];
 };
 
-async function apiRequest(path: string) {
+async function apiRequest(
+  path: string,
+  options: { method?: string; body?: unknown } = {},
+) {
   const token = localStorage.getItem("ss_token");
 
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    method: options.method || "GET",
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined,
   });
 
   const data = await response.json().catch(() => ({}));
@@ -68,6 +76,35 @@ async function apiRequest(path: string) {
   }
 
   return data;
+}
+
+function declencherTelechargement(blob: Blob, nom: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nom;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Récupère toutes les pages d'un statut (le backend limite chaque page)
+async function chargerToutes(statut: string): Promise<Fiche[]> {
+  const resultat: Fiche[] = [];
+  let page = 1;
+  let pages = 1;
+
+  do {
+    const data = await apiRequest(
+      `/fiches/hotel?statut=${statut}&page=${page}&limit=100`,
+    );
+    if (Array.isArray(data.fiches)) resultat.push(...data.fiches);
+    pages = data.pages || 1;
+    page += 1;
+  } while (page <= pages);
+
+  return resultat;
 }
 
 function formatDate(value?: string) {
@@ -81,21 +118,20 @@ export default function HotelClientsPage() {
   const [recherche, setRecherche] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const chargerClients = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const data = await apiRequest("/fiches/hotel?statut=registered");
-      const fiches: Fiche[] = Array.isArray(data.fiches) ? data.fiches : [];
-
-      const fichesValidees = fiches.filter(
-        (fiche) =>
-          fiche.statut === "registered" || fiche.statut === "transmitted"
-      );
+      const [validees, transmises] = await Promise.all([
+        chargerToutes("registered"),
+        chargerToutes("transmitted"),
+      ]);
+      const fichesValidees = [...validees, ...transmises];
 
       const regroupement = new Map<string, ClientValide>();
 
@@ -134,18 +170,17 @@ export default function HotelClientsPage() {
       }
 
       setClients(
-        Array.from(regroupement.values()).sort((a, b) => {
-          return (
+        Array.from(regroupement.values()).sort(
+          (a, b) =>
             new Date(b.derniereFiche || 0).getTime() -
-            new Date(a.derniereFiche || 0).getTime()
-          );
-        })
+            new Date(a.derniereFiche || 0).getTime(),
+        ),
       );
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Impossible de charger les clients validés."
+          : "Impossible de charger les clients validés.",
       );
       setClients([]);
     } finally {
@@ -157,76 +192,81 @@ export default function HotelClientsPage() {
     chargerClients();
   }, [chargerClients]);
 
-  async function telechargerDocuments(fiche: Fiche) {
-    setDownloadingId(fiche._id);
+  async function telechargerFichier(
+    fiche: Fiche,
+    type: "cnib" | "formulaire",
+  ) {
+    setDownloadingId(`${fiche._id}-${type}`);
     setError("");
     setMessage("");
 
     const token = localStorage.getItem("ss_token");
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
-    let cnibOk = false;
-    let pdfOk = false;
-    const manquants: string[] = [];
-
     try {
-      if (fiche.cnibFichier) {
-        const r1 = await fetch(`${API_BASE}/fiches/${fiche._id}/cnib`, {
+      if (type === "cnib") {
+        if (!fiche.cnibFichier) {
+          throw new Error("Aucune pièce d'identité pour cette fiche.");
+        }
+        const r = await fetch(`${API_BASE}/fiches/${fiche._id}/cnib`, {
           headers,
         });
-        if (r1.ok) {
-          const blob = await r1.blob();
-          const a = document.createElement("a");
-          a.href = URL.createObjectURL(blob);
-          a.download = `CNIB_${fiche.nom || ""}_${fiche.prenom || ""}.pdf`;
-          document.body.appendChild(a);
-          a.click();
-          a.remove();
-          cnibOk = true;
-        } else {
-          manquants.push("pièce d'identité");
+        if (!r.ok) throw new Error("Pièce d'identité introuvable.");
+        declencherTelechargement(
+          await r.blob(),
+          `CNIB_${fiche.nom || ""}_${fiche.prenom || ""}.pdf`,
+        );
+        setMessage("Pièce d'identité téléchargée.");
+      } else {
+        const r = await fetch(
+          `${API_BASE}/fiches/${fiche._id}/fiche-pdf/download`,
+          { headers },
+        );
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.message || "Formulaire PDF introuvable.");
         }
-      } else {
-        manquants.push("pièce d'identité");
-      }
-
-      const r2 = await fetch(
-        `${API_BASE}/fiches/${fiche._id}/fiche-pdf/download`,
-        { headers }
-      );
-      if (r2.ok) {
-        const blob = await r2.blob();
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `Fiche_${fiche.reference || fiche._id}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        pdfOk = true;
-      } else {
-        const data = await r2.json().catch(() => ({}));
-        manquants.push(data.message || "fiche hôtelière PDF");
-      }
-
-      if (cnibOk && pdfOk) {
-        setMessage(
-          `Documents téléchargés avec succès pour ${fiche.prenom} ${fiche.nom}.`
+        declencherTelechargement(
+          await r.blob(),
+          `Fiche_${fiche.reference || fiche._id}.pdf`,
         );
-      } else if (manquants.length) {
-        setError(
-          `Document(s) manquant(s) : ${manquants.join(
-            " et "
-          )}. Le téléchargement n'est pas complet.`
-        );
+        setMessage("Formulaire téléchargé.");
       }
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Erreur lors du téléchargement des documents."
+        err instanceof Error ? err.message : "Erreur de téléchargement.",
       );
     } finally {
       setDownloadingId(null);
+    }
+  }
+
+  async function supprimerClient(client: ClientValide) {
+    const nom =
+      [client.prenom, client.nom].filter(Boolean).join(" ") || "ce client";
+
+    const ok = window.confirm(
+      `Supprimer définitivement ${nom} ?\n\n` +
+        `${client.fiches.length} fiche(s) et tous les documents associés ` +
+        `(pièces d'identité + formulaires PDF) seront effacés. Cette action est irréversible.`,
+    );
+    if (!ok) return;
+
+    setDeletingId(client.id);
+    setError("");
+    setMessage("");
+
+    try {
+      await apiRequest("/fiches/hotel/supprimer", {
+        method: "POST",
+        body: { ficheIds: client.fiches.map((f) => f._id) },
+      });
+      setMessage(`${nom} et ses documents ont été supprimés.`);
+      await chargerClients();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Suppression impossible.");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -235,15 +275,18 @@ export default function HotelClientsPage() {
     if (!terme) return true;
 
     return [client.nom, client.prenom, client.email, client.nationalite].some(
-      (valeur) => valeur.toLowerCase().includes(terme)
+      (valeur) => valeur.toLowerCase().includes(terme),
     );
   });
 
+  const { page, setPage, totalPages, pageItems, total } = usePagination(
+    clientsFiltres,
+    10,
+    recherche,
+  );
+
   return (
-    <>
-    <InstitutionalHeader />
-    <main className="space-y-6 p-4 md:p-8">
-        
+    <div className="space-y-6 p-4 md:p-8">
       <button
         onClick={() => router.push("/hotel/dashboard")}
         className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900"
@@ -254,12 +297,11 @@ export default function HotelClientsPage() {
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">
-            Clients validés
-          </h1>
+          <h1 className="text-2xl font-bold text-slate-900">Clients validés</h1>
           <p className="mt-1 text-sm text-slate-500">
-            Clients ayant au moins une fiche validée. Téléchargez les deux
-            documents (pièce d&apos;identité + fiche PDF).
+            Clients ayant au moins une fiche validée. Téléchargez la pièce
+            d&apos;identité et le formulaire, ou supprimez le client avec tous
+            ses documents.
           </p>
         </div>
 
@@ -314,10 +356,7 @@ export default function HotelClientsPage() {
             <p className="text-3xl font-bold text-slate-900">
               {loading
                 ? "—"
-                : clients.reduce(
-                    (total, client) => total + client.nombreFiches,
-                    0
-                  )}
+                : clients.reduce((t, client) => t + client.nombreFiches, 0)}
             </p>
           </div>
         </div>
@@ -351,26 +390,26 @@ export default function HotelClientsPage() {
               Aucun client validé trouvé
             </p>
             <p className="text-sm text-slate-500">
-              Les clients apparaîtront ici dès que leur fiche sera validée
-              par l&apos;hôtel.
+              Les clients apparaîtront ici dès que leur fiche sera validée par
+              l&apos;hôtel.
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] text-left text-sm">
+            <table className="w-full min-w-[900px] text-left text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Client</th>
                   <th className="px-4 py-3">Nationalité</th>
                   <th className="px-4 py-3">Fiches</th>
                   <th className="px-4 py-3">Dernière fiche</th>
-                  <th className="px-4 py-3">Références</th>
                   <th className="px-4 py-3 text-right">Documents</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y">
-                {clientsFiltres.map((client) => (
+                {pageItems.map((client) => (
                   <tr key={client.id} className="hover:bg-slate-50">
                     <td className="px-4 py-4">
                       <p className="font-semibold text-slate-900">
@@ -396,43 +435,80 @@ export default function HotelClientsPage() {
                     </td>
 
                     <td className="px-4 py-4">
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex flex-col items-end gap-2">
                         {client.fiches.map((fiche) => (
-                          <span
+                          <div
                             key={fiche._id}
-                            title={`Séjour : ${formatDate(
-                              fiche.dateEntree
-                            )} – ${formatDate(fiche.dateSortie)}`}
-                            className="rounded border bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                            className="flex flex-wrap items-center justify-end gap-2"
                           >
-                            {fiche.reference || fiche._id.slice(-8)}
-                          </span>
+                            <span
+                              className="rounded border bg-slate-50 px-2 py-1 text-xs text-slate-600"
+                              title={`Séjour : ${formatDate(fiche.dateEntree)} – ${formatDate(fiche.dateSortie)}`}
+                            >
+                              {fiche.reference || fiche._id.slice(-8)}
+                            </span>
+
+                            {/* Pièce d'identité : bleu */}
+                            <button
+                              disabled={
+                                !fiche.cnibFichier ||
+                                downloadingId === `${fiche._id}-cnib`
+                              }
+                              onClick={() => telechargerFichier(fiche, "cnib")}
+                              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                              title="Télécharger la pièce d'identité"
+                            >
+                              {downloadingId === `${fiche._id}-cnib` ? (
+                                <LoaderCircle
+                                  size={14}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <Download size={14} />
+                              )}
+                              Pièce d&apos;identité
+                            </button>
+
+                            {/* Formulaire : vert */}
+                            <button
+                              disabled={
+                                downloadingId === `${fiche._id}-formulaire`
+                              }
+                              onClick={() =>
+                                telechargerFichier(fiche, "formulaire")
+                              }
+                              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                              title="Télécharger le formulaire (fiche hôtelière PDF)"
+                            >
+                              {downloadingId === `${fiche._id}-formulaire` ? (
+                                <LoaderCircle
+                                  size={14}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <FileText size={14} />
+                              )}
+                              Formulaire
+                            </button>
+                          </div>
                         ))}
                       </div>
                     </td>
 
                     <td className="px-4 py-4 text-right">
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {client.fiches.map((fiche) => (
-                          <button
-                            key={fiche._id}
-                            disabled={downloadingId === fiche._id}
-                            onClick={() => telechargerDocuments(fiche)}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-                            title="Télécharger pièce d'identité + fiche PDF"
-                          >
-                            {downloadingId === fiche._id ? (
-                              <LoaderCircle
-                                size={14}
-                                className="animate-spin"
-                              />
-                            ) : (
-                              <Download size={14} />
-                            )}
-                            Télécharger
-                          </button>
-                        ))}
-                      </div>
+                      <button
+                        disabled={deletingId === client.id}
+                        onClick={() => supprimerClient(client)}
+                        className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        title="Supprimer le client et tous ses documents"
+                      >
+                        {deletingId === client.id ? (
+                          <LoaderCircle size={14} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                        Supprimer
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -440,9 +516,14 @@ export default function HotelClientsPage() {
             </table>
           </div>
         )}
+
+        <Pagination
+          page={page}
+          totalPages={totalPages}
+          onChange={setPage}
+          total={total}
+        />
       </section>
-    </main>
-    <InstitutionalFooter />
-    </>
+    </div>
   );
 }

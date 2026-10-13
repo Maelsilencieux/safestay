@@ -1,12 +1,16 @@
 const express = require('express');
 const router  = express.Router();
 
-const User    = require('../models/User');
-const Fiche   = require('../models/Fiche');
+const crypto = require('crypto');
+const path   = require('path');
+const fs     = require('fs');
+
+const Hotel  = require('../models/Hotel');
+const User   = require('../models/User');
+const Fiche  = require('../models/Fiche');
 const { protect, authorize } = require('../middleware/auth');
 const emailSvc = require('../utils/email');
 const { notify } = require('../utils/notify');
-const path = require('path');
 
 // Toutes les routes admin nécessitent d'être superadmin
 router.use(protect, authorize('superadmin'));
@@ -16,11 +20,9 @@ const UPLOAD_ROOT = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'upload
 
 // ============================================================
 //  GET /api/admin/stats
-//  Statistiques globales de la plateforme
 // ============================================================
 router.get('/stats', async (req, res) => {
     try {
-        // l'ordre des requêtes Promise.all doit correspondre
         const [
             totalClients,
             totalHotels,
@@ -66,7 +68,6 @@ router.get('/stats', async (req, res) => {
 
 // ============================================================
 //  GET /api/admin/hotels
-//  Liste tous les hôtels (approuvés + en attente + refusés)
 // ============================================================
 router.get('/hotels', async (req, res) => {
     try {
@@ -85,8 +86,81 @@ router.get('/hotels', async (req, res) => {
 });
 
 // ============================================================
+//  POST /api/admin/hotels
+//  Créer un hôtel (nom, téléphone, RCCM, ville, e-mail obligatoires)
+// ============================================================
+router.post('/hotels', async (req, res) => {
+    try {
+        const nomHotel   = (req.body.nomHotel  || '').trim();
+        const telephone  = (req.body.telephone || '').trim();
+        const rccm       = (req.body.rccm      || '').trim();
+        const ville      = (req.body.ville     || '').trim();
+        const emailSaisi = (req.body.email     || '').trim().toLowerCase();
+
+        if (!nomHotel || !telephone || !rccm || !ville || !emailSaisi) {
+            return res.status(400).json({
+                success: false,
+                message: 'Nom, téléphone, RCCM, ville et e-mail sont obligatoires.',
+            });
+        }
+
+        if (!/^[+\d][\d\s.-]{5,19}$/.test(telephone)) {
+            return res.status(400).json({ success: false, message: 'Numéro de téléphone invalide.' });
+        }
+
+        if (await User.findOne({ role: 'hotel', rccm })) {
+            return res.status(409).json({ success: false, message: 'Un hôtel avec ce numéro RCCM existe déjà.' });
+        }
+
+        // MODIFICATION 1 : l'e-mail saisi est utilisé tel quel
+        const email = emailSaisi;
+        if (await User.findOne({ email })) {
+            return res.status(409).json({ success: false, message: 'Cet e-mail est déjà utilisé.' });
+        }
+
+        // Mot de passe temporaire (haché par le hook pre('save') du modèle User)
+        const motDePasseTemporaire = crypto.randomBytes(9).toString('base64url');
+
+        const user = await User.create({
+            role: 'hotel',
+            email,
+            password: motDePasseTemporaire,
+            nomHotel,
+            telephone,
+            rccm,
+            villeHotel: ville,
+            hotelStatus: 'approved',
+            isActive: true,
+            isVerified: true,
+            approvedAt: new Date(),
+            approvedBy: req.user._id,
+        });
+
+        // Crée le document Hotel lié au compte
+        try {
+            const existe = await Hotel.findOne({ user: user._id });
+            if (!existe) {
+                await Hotel.create({ user: user._id, nomHotel, ville, telephone, email });
+            }
+        } catch (hotelErr) {
+            await User.findByIdAndDelete(user._id); // évite un compte à moitié créé
+            throw hotelErr;
+        }
+
+        res.status(201).json({
+            success: true,
+            message: `Hôtel "${nomHotel}" créé.`,
+            // MODIFICATION 2 : on renvoie simplement l'e-mail
+            hotel: { _id: user._id, nomHotel, email },
+            motDePasseTemporaire,
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// ============================================================
 //  PATCH /api/admin/hotels/:userId/approuver
-//  Approuver un compte hôtel
 // ============================================================
 router.patch('/hotels/:userId/approuver', async (req, res) => {
     try {
@@ -104,10 +178,8 @@ router.patch('/hotels/:userId/approuver', async (req, res) => {
         user.approvedBy  = req.user._id;
         await user.save();
 
-        //  un seul email d'approbation, `email` (non importé) 
         emailSvc.sendHotelApprouve(user).catch(console.error);
 
-        // Notification in-app pour l'hôtel
         notify({
             user:    user._id,
             type:    'hotel_approved',
@@ -124,11 +196,9 @@ router.patch('/hotels/:userId/approuver', async (req, res) => {
 
 // ============================================================
 //  PATCH /api/admin/hotels/:userId/rejeter
-//  Rejeter un compte hôtel
 // ============================================================
 router.patch('/hotels/:userId/rejeter', async (req, res) => {
     try {
-        // ⚠️ FIX : le front envoie `motif`, pas `raison`.
         const { motif } = req.body;
         const user = await User.findOne({ _id: req.params.userId, role: 'hotel' });
         if (!user) return res.status(404).json({ success: false, message: 'Hôtel introuvable.' });
@@ -138,10 +208,8 @@ router.patch('/hotels/:userId/rejeter', async (req, res) => {
         user.hotelRejectedReason = motif || 'Documents non conformes';
         await user.save();
 
-        // ⚠️ FIX : `email` n'était pas importé (module s'appelle `emailSvc` ici).
         emailSvc.sendHotelRefuse(user, user.hotelRejectedReason).catch(console.error);
 
-        // Notification in-app pour l'hôtel
         notify({
             user:    user._id,
             type:    'hotel_rejected',
@@ -157,7 +225,6 @@ router.patch('/hotels/:userId/rejeter', async (req, res) => {
 
 // ============================================================
 //  GET /api/admin/fiches
-//  Toutes les fiches (vue police / superadmin)
 // ============================================================
 router.get('/fiches', async (req, res) => {
     try {
@@ -187,8 +254,24 @@ router.get('/fiches', async (req, res) => {
 });
 
 // ============================================================
+//  GET /api/admin/fiches/recent
+// ============================================================
+router.get('/fiches/recent', async (req, res) => {
+    try {
+        const fiches = await Fiche.find()
+            .populate('client', 'nom prenom')
+            .populate('hotel', 'nomHotel')
+            .sort('-createdAt')
+            .limit(5);
+
+        res.json({ success: true, fiches });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// ============================================================
 //  GET /api/admin/clients
-//  Liste des clients
 // ============================================================
 router.get('/clients', async (req, res) => {
     try {
@@ -203,7 +286,6 @@ router.get('/clients', async (req, res) => {
 
 // ============================================================
 //  GET /api/admin/users
-//  Liste de tous les utilisateurs
 // ============================================================
 router.get('/users', async (req, res) => {
     try {
@@ -223,8 +305,7 @@ router.get('/users', async (req, res) => {
 
 // ============================================================
 //  PATCH /api/admin/users/:userId/toggle
-//  Activer / désactiver un compte (ajouté — le front l'appelait
-//  déjà mais la route n'existait pas côté backend)
+//  Activer / désactiver un compte
 // ============================================================
 router.patch('/users/:userId/toggle', async (req, res) => {
     try {
@@ -248,18 +329,36 @@ router.patch('/users/:userId/toggle', async (req, res) => {
 });
 
 // ============================================================
-//  GET /api/admin/fiches/recent
-//  5 dernières fiches (dashboard)
+//  DELETE /api/admin/users/:userId/definitif
+//  Suppression définitive — refusée si des fiches existent
 // ============================================================
-router.get('/fiches/recent', async (req, res) => {
+router.delete('/users/:userId/definitif', async (req, res) => {
     try {
-        const fiches = await Fiche.find()
-            .populate('client', 'nom prenom')
-            .populate('hotel', 'nomHotel')
-            .sort('-createdAt')
-            .limit(5);
+        const user = await User.findById(req.params.userId);
+        if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
 
-        res.json({ success: true, fiches });
+        if (user.role === 'superadmin') {
+            return res.status(400).json({ success: false, message: 'Impossible de supprimer un superadmin.' });
+        }
+
+        const filtreFiches = user.role === 'hotel'
+            ? { hotelUser: user._id }
+            : { client: user._id };
+        const nbFiches = await Fiche.countDocuments(filtreFiches);
+
+        if (nbFiches > 0) {
+            return res.status(409).json({
+                success: false,
+                message: `Suppression impossible : ce compte est lié à ${nbFiches} fiche(s) d'hébergement. Désactivez-le à la place.`,
+            });
+        }
+
+        if (user.role === 'hotel') {
+            await Hotel.deleteOne({ user: user._id });
+        }
+        await User.findByIdAndDelete(user._id);
+
+        res.json({ success: true, message: 'Compte supprimé définitivement.' });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
     }
@@ -273,7 +372,9 @@ router.delete('/users/:userId', async (req, res) => {
     try {
         const user = await User.findById(req.params.userId);
         if (!user) return res.status(404).json({ success: false, message: 'Utilisateur introuvable.' });
-        if (user.role === 'superadmin') return res.status(400).json({ success: false, message: 'Impossible de supprimer un superadmin.' });
+        if (user.role === 'superadmin') {
+            return res.status(400).json({ success: false, message: 'Impossible de supprimer un superadmin.' });
+        }
 
         user.isActive = false;
         await user.save();
@@ -285,7 +386,6 @@ router.delete('/users/:userId', async (req, res) => {
 
 // ============================================================
 //  GET /api/admin/documents
-//  Tous les documents PDF
 // ============================================================
 router.get('/documents', async (req, res) => {
     try {
@@ -311,8 +411,7 @@ router.get('/documents', async (req, res) => {
 });
 
 // ============================================================
-//  GET /api/admin/documents/:id/download
-//  Télécharger un document (CNIB)
+//  GET /api/admin/documents/:id/download   (CNIB)
 // ============================================================
 router.get('/documents/:id/download', async (req, res) => {
     try {
@@ -321,7 +420,6 @@ router.get('/documents/:id/download', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Document introuvable' });
         }
 
-        // path.join sécurisé vers le dossier d'upload réel,
         const filePath = path.join(UPLOAD_ROOT, 'cnib', fiche.cnibFichier);
         res.download(filePath);
     } catch (err) {
@@ -330,8 +428,7 @@ router.get('/documents/:id/download', async (req, res) => {
 });
 
 // ============================================================
-//  GET /api/admin/documents/:id/view
-//  Voir un document
+//  GET /api/admin/documents/:id/view   (CNIB)
 // ============================================================
 router.get('/documents/:id/view', async (req, res) => {
     try {
@@ -348,8 +445,7 @@ router.get('/documents/:id/view', async (req, res) => {
 });
 
 // ============================================================
-//  GET /api/admin/documents/:id/fiche
-//  Voir la fiche PDF
+//  GET /api/admin/documents/:id/fiche   (voir la fiche PDF)
 // ============================================================
 router.get('/documents/:id/fiche', async (req, res) => {
     try {
@@ -366,7 +462,6 @@ router.get('/documents/:id/fiche', async (req, res) => {
 
 // ============================================================
 //  GET /api/admin/documents/:id/download-fiche
-//  Télécharger la fiche PDF
 // ============================================================
 router.get('/documents/:id/download-fiche', async (req, res) => {
     try {
@@ -384,16 +479,14 @@ router.get('/documents/:id/download-fiche', async (req, res) => {
 
 // ============================================================
 //  DELETE /api/admin/documents/:id
-//  Supprimer un document (référence + fichier physique)
+//  Supprimer la CNIB (référence + fichier physique)
 // ============================================================
 router.delete('/documents/:id', async (req, res) => {
     try {
         const fiche = await Fiche.findById(req.params.id);
         if (!fiche) return res.status(404).json({ success: false, message: 'Document introuvable' });
 
-        // Supprimer le fichier physique s'il existe (évite les fichiers orphelins)
         if (fiche.cnibFichier) {
-            const fs = require('fs');
             const filePath = path.join(UPLOAD_ROOT, 'cnib', fiche.cnibFichier);
             fs.unlink(filePath, (err) => { if (err) console.error(err); });
         }

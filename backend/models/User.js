@@ -86,4 +86,9 @@ UserSchema.methods.toSafe = function() {
     return obj;
 };
 
+UserSchema.index(
+    { rccm: 1 },
+    { unique: true, partialFilterExpression: { rccm: { $type: 'string' } } }
+);
+
 module.exports = mongoose.model('User', UserSchema);

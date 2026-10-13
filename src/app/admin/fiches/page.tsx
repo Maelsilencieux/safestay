@@ -1,9 +1,11 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Admin } from "@/lib/api";
+import Pagination from "@/components/ui/Pagination";
+import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
+import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
 
 type HotelFiche = {
   _id: string;
@@ -25,6 +27,8 @@ type HotelFiche = {
   statut?: string;
   createdAt?: string;
 };
+
+const PAGE_SIZE = 10;
 
 function extractFiches(result: any): HotelFiche[] {
   const data = result?.data;
@@ -49,26 +53,61 @@ export default function AdminFichesPage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
 
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  // Totaux globaux (indépendants de la page affichée)
+  const [globalStats, setGlobalStats] = useState({
+    pending: 0,
+    transmitted: 0,
+  });
+
+  useEffect(() => {
+    async function loadStats() {
+      const res = await Admin.stats();
+      if (res.ok) {
+        const s = (res.data as any)?.stats;
+        if (s) {
+          setGlobalStats({
+            pending: s.fichesPending || 0,
+            transmitted: s.fichesTransmitted || 0,
+          });
+        }
+      }
+    }
+    void loadStats();
+  }, []);
+
   const loadFiches = useCallback(async () => {
     setLoading(true);
     setMessage("");
 
-    const params = status ? { statut: status } : {};
+    const params: Record<string, string> = {
+      page: String(page),
+      limit: String(PAGE_SIZE),
+    };
+    if (status) params.statut = status;
+
     const result = await Admin.fiches(params);
 
     if (result.ok) {
       setFiches(extractFiches(result));
+      const d = (result.data as any)?.data ?? (result.data as any);
+      setTotalPages(d?.pages || 1);
+      setTotal(d?.total || 0);
     } else {
       setMessage(result.data?.message || "Impossible de charger les fiches.");
     }
 
     setLoading(false);
-  }, [status]);
+  }, [status, page]);
 
   useEffect(() => {
     void loadFiches();
   }, [loadFiches]);
 
+  // La recherche filtre les fiches de la page affichée
   const filtered = fiches.filter((fiche) => {
     const client = fiche.client;
     const haystack = [
@@ -78,12 +117,16 @@ export default function AdminFichesPage() {
       client?.email,
       fiche.hotel?.nomHotel,
       fiche.hotel?.ville,
-    ].join(" ").toLowerCase();
+    ]
+      .join(" ")
+      .toLowerCase();
 
     return haystack.includes(search.toLowerCase());
   });
 
   return (
+    <>
+    <InstitutionalHeader />
     <main className="min-h-screen bg-slate-50 p-4 sm:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -108,20 +151,18 @@ export default function AdminFichesPage() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Fiches affichées</p>
-            <p className="mt-2 text-3xl font-bold">{filtered.length}</p>
+            <p className="text-sm text-slate-500">
+              {status ? "Fiches (filtre actif)" : "Total des fiches"}
+            </p>
+            <p className="mt-2 text-3xl font-bold">{total}</p>
           </div>
           <div className="rounded-xl border bg-white p-5">
             <p className="text-sm text-slate-500">En attente</p>
-            <p className="mt-2 text-3xl font-bold">
-              {fiches.filter((f) => f.statut === "pending").length}
-            </p>
+            <p className="mt-2 text-3xl font-bold">{globalStats.pending}</p>
           </div>
           <div className="rounded-xl border bg-white p-5">
             <p className="text-sm text-slate-500">Transmises</p>
-            <p className="mt-2 text-3xl font-bold">
-              {fiches.filter((f) => f.statut === "transmitted").length}
-            </p>
+            <p className="mt-2 text-3xl font-bold">{globalStats.transmitted}</p>
           </div>
         </div>
 
@@ -129,12 +170,15 @@ export default function AdminFichesPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher un client, un hôtel ou une référence..."
+            placeholder="Rechercher dans cette page : client, hôtel, référence..."
             className="min-w-0 flex-1 rounded-lg border px-4 py-2 outline-none focus:border-red-500"
           />
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onChange={(e) => {
+              setStatus(e.target.value);
+              setPage(1);
+            }}
             className="rounded-lg border px-4 py-2"
           >
             <option value="">Tous les statuts</option>
@@ -146,7 +190,10 @@ export default function AdminFichesPage() {
         </div>
 
         {message && (
-          <p role="status" className="rounded-lg border bg-white p-3 text-sm text-slate-700">
+          <p
+            role="status"
+            className="rounded-lg border bg-white p-3 text-sm text-slate-700"
+          >
             {message}
           </p>
         )}
@@ -155,7 +202,9 @@ export default function AdminFichesPage() {
           {loading ? (
             <p className="p-8 text-center text-slate-500">Chargement...</p>
           ) : filtered.length === 0 ? (
-            <p className="p-8 text-center text-slate-500">Aucune fiche trouvée.</p>
+            <p className="p-8 text-center text-slate-500">
+              Aucune fiche trouvée.
+            </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[850px] text-left text-sm">
@@ -176,16 +225,37 @@ export default function AdminFichesPage() {
                         {fiche.reference || fiche._id.slice(-8).toUpperCase()}
                       </td>
                       <td className="p-4">
-                        <p>{`${fiche.client?.prenom || fiche.prenom || ""} ${fiche.client?.nom || fiche.nom || ""}`.trim() || "—"}</p>
-                        <p className="mt-1 text-xs text-slate-500">{fiche.client?.email || ""}</p>
+                        <p>
+                          {`${fiche.client?.prenom || fiche.prenom || ""} ${fiche.client?.nom || fiche.nom || ""}`.trim() ||
+                            "—"}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fiche.client?.email || ""}
+                        </p>
                       </td>
                       <td className="p-4">
                         <p>{fiche.hotel?.nomHotel || "—"}</p>
-                        <p className="mt-1 text-xs text-slate-500">{fiche.hotel?.ville || ""}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fiche.hotel?.ville || ""}
+                        </p>
                       </td>
                       <td className="p-4">
-                        <p>Entrée : {fiche.dateEntree ? new Date(fiche.dateEntree).toLocaleDateString("fr-FR") : "—"}</p>
-                        <p className="mt-1">Sortie : {fiche.dateSortie ? new Date(fiche.dateSortie).toLocaleDateString("fr-FR") : "—"}</p>
+                        <p>
+                          Entrée :{" "}
+                          {fiche.dateEntree
+                            ? new Date(fiche.dateEntree).toLocaleDateString(
+                                "fr-FR",
+                              )
+                            : "—"}
+                        </p>
+                        <p className="mt-1">
+                          Sortie :{" "}
+                          {fiche.dateSortie
+                            ? new Date(fiche.dateSortie).toLocaleDateString(
+                                "fr-FR",
+                              )
+                            : "—"}
+                        </p>
                       </td>
                       <td className="p-4">
                         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
@@ -206,8 +276,17 @@ export default function AdminFichesPage() {
               </table>
             </div>
           )}
+
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onChange={setPage}
+            total={total}
+          />
         </div>
       </div>
     </main>
+    <InstitutionalFooter/>
+    </>
   );
 }

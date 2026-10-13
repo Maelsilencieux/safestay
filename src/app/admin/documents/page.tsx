@@ -1,9 +1,12 @@
-
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { Admin, getToken } from "@/lib/api";
+import Pagination from "@/components/ui/Pagination";
+import { usePagination } from "@/lib/usePagination";
+import InstitutionalHeader from "@/components/layout/InstitutionalHeader";
+import InstitutionalFooter from "@/components/layout/InstitutionalFooter";
 
 type ArchiveDocument = {
   _id: string;
@@ -55,7 +58,7 @@ export default function AdminDocumentsPage() {
   async function openDocument(
     id: string,
     kind: "cnib" | "fiche",
-    download: boolean
+    download: boolean,
   ) {
     const key = `${id}-${kind}-${download}`;
     setBusyKey(key);
@@ -87,7 +90,9 @@ export default function AdminDocumentsPage() {
       });
 
       if (!response.ok) {
-        throw new Error("Le document est indisponible ou l'accès a été refusé.");
+        throw new Error(
+          "Le document est indisponible ou l'accès a été refusé.",
+        );
       }
 
       const blob = await response.blob();
@@ -109,7 +114,7 @@ export default function AdminDocumentsPage() {
       setMessage(
         error instanceof Error
           ? error.message
-          : "Impossible d'ouvrir le document."
+          : "Impossible d'ouvrir le document.",
       );
     } finally {
       setBusyKey("");
@@ -123,12 +128,22 @@ export default function AdminDocumentsPage() {
       doc.client?.prenom,
       doc.client?.email,
       doc.hotel?.nomHotel,
-    ].join(" ").toLowerCase();
+    ]
+      .join(" ")
+      .toLowerCase();
 
     return text.includes(search.toLowerCase());
   });
 
+  const { page, setPage, totalPages, pageItems, total } = usePagination(
+    filtered,
+    10,
+    search,
+  );
+
   return (
+    <>
+    <InstitutionalHeader/>
     <main className="min-h-screen bg-slate-50 p-4 sm:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -140,7 +155,8 @@ export default function AdminDocumentsPage() {
               Archives des documents
             </h1>
             <p className="mt-1 text-slate-500">
-              Consultation des pièces d'identité et des fiches PDF conservées.
+              Consultation des pièces d&apos;identité et des fiches PDF
+              conservées.
             </p>
           </div>
           <Link
@@ -153,11 +169,15 @@ export default function AdminDocumentsPage() {
 
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="rounded-xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Fiches archivées ou consultables</p>
+            <p className="text-sm text-slate-500">
+              Fiches archivées ou consultables
+            </p>
             <p className="mt-2 text-3xl font-bold">{documents.length}</p>
           </div>
           <div className="rounded-xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Pièces d'identité présentes</p>
+            <p className="text-sm text-slate-500">
+              Pièces d&apos;identité présentes
+            </p>
             <p className="mt-2 text-3xl font-bold">
               {documents.filter((d) => d.cnib).length}
             </p>
@@ -180,14 +200,19 @@ export default function AdminDocumentsPage() {
         </div>
 
         {message && (
-          <p role="status" className="rounded-lg border bg-white p-3 text-sm text-slate-700">
+          <p
+            role="status"
+            className="rounded-lg border bg-white p-3 text-sm text-slate-700"
+          >
             {message}
           </p>
         )}
 
         <div className="overflow-hidden rounded-xl border bg-white">
           {loading ? (
-            <p className="p-8 text-center text-slate-500">Chargement des archives...</p>
+            <p className="p-8 text-center text-slate-500">
+              Chargement des archives...
+            </p>
           ) : filtered.length === 0 ? (
             <p className="p-8 text-center text-slate-500">
               Aucun document trouvé.
@@ -200,16 +225,17 @@ export default function AdminDocumentsPage() {
                     <th className="p-4">Client</th>
                     <th className="p-4">Établissement</th>
                     <th className="p-4">Date</th>
-                    <th className="p-4">Pièce d'identité</th>
+                    <th className="p-4">Pièce d&apos;identité</th>
                     <th className="p-4">Fiche PDF</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {filtered.map((doc) => (
+                  {pageItems.map((doc) => (
                     <tr key={doc._id} className="hover:bg-slate-50">
                       <td className="p-4">
                         <p className="font-semibold">
-                          {`${doc.client?.prenom || ""} ${doc.client?.nom || ""}`.trim() || "—"}
+                          {`${doc.client?.prenom || ""} ${doc.client?.nom || ""}`.trim() ||
+                            "—"}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           {doc.client?.email || ""}
@@ -229,21 +255,27 @@ export default function AdminDocumentsPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               disabled={!!busyKey}
-                              onClick={() => openDocument(doc._id, "cnib", false)}
+                              onClick={() =>
+                                openDocument(doc._id, "cnib", false)
+                              }
                               className="rounded-md border px-3 py-2 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50"
                             >
                               Consulter
                             </button>
                             <button
                               disabled={!!busyKey}
-                              onClick={() => openDocument(doc._id, "cnib", true)}
+                              onClick={() =>
+                                openDocument(doc._id, "cnib", true)
+                              }
                               className="rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                             >
                               Télécharger
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">Fichier absent</span>
+                          <span className="text-xs text-slate-400">
+                            Fichier absent
+                          </span>
                         )}
                       </td>
                       <td className="p-4">
@@ -251,21 +283,27 @@ export default function AdminDocumentsPage() {
                           <div className="flex flex-wrap gap-2">
                             <button
                               disabled={!!busyKey}
-                              onClick={() => openDocument(doc._id, "fiche", false)}
+                              onClick={() =>
+                                openDocument(doc._id, "fiche", false)
+                              }
                               className="rounded-md border px-3 py-2 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50"
                             >
                               Consulter
                             </button>
                             <button
                               disabled={!!busyKey}
-                              onClick={() => openDocument(doc._id, "fiche", true)}
+                              onClick={() =>
+                                openDocument(doc._id, "fiche", true)
+                              }
                               className="rounded-md bg-red-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                             >
                               Télécharger
                             </button>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-400">PDF absent</span>
+                          <span className="text-xs text-slate-400">
+                            PDF absent
+                          </span>
                         )}
                       </td>
                     </tr>
@@ -274,8 +312,17 @@ export default function AdminDocumentsPage() {
               </table>
             </div>
           )}
+
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            onChange={setPage}
+            total={total}
+          />
         </div>
       </div>
     </main>
+    <InstitutionalFooter/>
+    </>
   );
 }
