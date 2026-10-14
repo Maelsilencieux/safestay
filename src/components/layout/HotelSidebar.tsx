@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ShieldCheck, LayoutDashboard, FileText, FolderOpen, BedDouble, LogOut, Landmark, UserRoundCheck  } from "lucide-react";
+import { ShieldCheck, LayoutDashboard, FileText, FolderOpen, BedDouble, LogOut, Landmark, UserRoundCheck, Settings,  } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const NAV = [
   { href: "/hotel/documents", icon: FolderOpen, label: "Documents" },
   { href: "/hotel/chambres", icon: BedDouble, label: "Chambres" },
   { href: "/hotel/clients", icon: UserRoundCheck, label: "Clients" },
+  { href: "/hotel/parametres", icon: Settings, label: "Paramètres" },
 ];
 
 export default function HotelSidebar() {

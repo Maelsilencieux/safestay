@@ -151,6 +151,15 @@ export default function HotelDashboard() {
           >
             Gérer les chambres
           </Button>
+
+          
+          <Button
+            variant="outline"
+            onClick={() => router.push("/hotel/parametres")}
+          >
+            Paramètres
+          </Button>
+          
         </div>
       </div>
     </div>

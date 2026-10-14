@@ -32,6 +32,7 @@ const UserSchema = new mongoose.Schema({
     verifyToken: String,
     resetToken: String,
     resetTokenExpire: Date,
+    passwordChangedAt: { type: Date, default: null },
 
     // --- Client uniquement ---
     nom:       { type: String, trim: true },

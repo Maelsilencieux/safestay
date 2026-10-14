@@ -155,6 +155,19 @@ export const Auth = {
   async resetPassword(token: string, email: string, password: string) {
     return apiCall("POST", "/auth/reset-password", { token, email, password });
   },
+
+  async changePassword(
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string
+  ) {
+    return apiCall<{ token?: string }>("PATCH", "/auth/change-password", {
+      currentPassword,
+      newPassword,
+      confirmPassword,
+    });
+  },
+  
 };
 
 // ===== HOTELS =====

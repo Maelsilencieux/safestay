@@ -1,53 +1,54 @@
-const jwt = require('jsonwebtoken');
+const jwt  = require('jsonwebtoken');
 const User = require('../models/User');
 
 // ============================================================
 //  Middleware d'authentification JWT
 // ============================================================
-
 exports.protect = async (req, res, next) => {
     let token;
 
-    // 1. Récupérer le token depuis l'en-tête Authorization
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
         token = req.headers.authorization.split(' ')[1];
-    } 
-    // 2. Fallback : Récupérer le token depuis les cookies (ss_token)
-    else if (req.cookies && req.cookies.ss_token) {
+    } else if (req.cookies && req.cookies.ss_token) {
         token = req.cookies.ss_token;
     }
 
     if (!token) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Non authentifié. Token manquant.' 
-        });
+        return res.status(401).json({ success: false, message: 'Non authentifié. Token manquant.' });
     }
 
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // Algorithme imposé : refuse les jetons signés autrement
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
         req.user = await User.findById(decoded.id).select('-password');
 
         if (!req.user) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Utilisateur introuvable.' 
+            return res.status(401).json({ success: false, message: 'Utilisateur introuvable.' });
+        }
+
+        // Compte désactivé / hôtel suspendu : accès coupé immédiatement
+        if (!req.user.isActive) {
+            return res.status(401).json({
+                success: false,
+                code: 'ACCOUNT_DISABLED',
+                message: 'Compte désactivé.',
             });
         }
 
-        if (!req.user.isActive) {
-            return res.status(403).json({ 
-                success: false, 
-                message: 'Compte désactivé.' 
+        // Refuser les jetons émis avant le dernier changement de mot de passe
+        if (
+            req.user.passwordChangedAt &&
+            decoded.iat * 1000 < req.user.passwordChangedAt.getTime()
+        ) {
+            return res.status(401).json({
+                success: false,
+                message: 'Mot de passe modifié récemment. Veuillez vous reconnecter.',
             });
         }
 
         next();
     } catch (err) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Token invalide ou expiré.' 
-        });
+        return res.status(401).json({ success: false, message: 'Token invalide ou expiré.' });
     }
 };
 
@@ -63,14 +64,13 @@ exports.authorize = (...roles) => (req, res, next) => {
         });
     }
 
-    // Normalisation du rôle utilisateur et des rôles autorisés en minuscules
     const userRole = req.user.role.toString().toLowerCase().trim();
     const allowedRoles = roles.map(r => r.toLowerCase().trim());
 
     if (!allowedRoles.includes(userRole)) {
         return res.status(403).json({
             success: false,
-            message: `Accès refusé. Rôle requis : ${roles.join(' ou ')}. Votre rôle actuel : ${req.user.role}`,
+            message: `Accès refusé. Rôle requis : ${roles.join(' ou ')}.`,
         });
     }
     next();
