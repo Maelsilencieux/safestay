@@ -56,70 +56,69 @@ export default function AdminDocumentsPage() {
   }, [loadDocuments]);
 
   async function openDocument(
-    id: string,
-    kind: "cnib" | "fiche",
-    download: boolean,
-  ) {
-    const key = `${id}-${kind}-${download}`;
-    setBusyKey(key);
-    setMessage("");
-
-    try {
-      const token = getToken();
-      if (!token) {
-        setMessage("Votre session a expiré. Veuillez vous reconnecter.");
-        return;
-      }
-
-      let url: string;
-
-      if (kind === "cnib") {
-        url = download
-          ? Admin.documentDownloadUrl(id)
-          : Admin.documentViewUrl(id);
-      } else {
-        url = download
-          ? Admin.fichePdfDownloadUrl(id)
-          : Admin.fichePdfUrl(id);
-      }
-
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(
-          "Le document est indisponible ou l'accès a été refusé.",
-        );
-      }
-
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
-
-      if (download) {
-        const a = document.createElement("a");
-        a.href = objectUrl;
-        a.download = `${kind === "cnib" ? "piece-identite" : "fiche-hotel"}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      } else {
-        window.open(objectUrl, "_blank", "noopener,noreferrer");
-      }
-
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-    } catch (error) {
-      setMessage(
-        error instanceof Error
-          ? error.message
-          : "Impossible d'ouvrir le document.",
-      );
-    } finally {
-      setBusyKey("");
+  id: string,
+  kind: "cnib" | "fiche",
+  download: boolean,
+  reference?: string,
+) {
+  // La fenêtre est ouverte tout de suite (pendant le clic), puis remplie après le chargement
+  const win = !download ? window.open("", "_blank") : null;
+ 
+  setBusyKey(`${id}-${kind}-${download}`);
+  setMessage("");
+ 
+  try {
+    const token = getToken();
+    if (!token) {
+      win?.close();
+      setMessage("Votre session a expiré. Veuillez vous reconnecter.");
+      return;
     }
+ 
+    let url: string;
+    if (kind === "cnib") {
+      url = download ? Admin.documentDownloadUrl(id) : Admin.documentViewUrl(id);
+    } else {
+      url = download ? Admin.fichePdfDownloadUrl(id) : Admin.fichePdfUrl(id);
+    }
+ 
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+ 
+    if (!response.ok) {
+      throw new Error("Le document est indisponible ou l'accès a été refusé.");
+    }
+ 
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+ 
+    if (download) {
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `${kind === "cnib" ? "piece-identite" : "fiche-hotel"}${
+        reference ? `-${reference}` : ""
+      }.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } else if (win) {
+      win.opener = null; // équivalent de "noopener"
+      win.location.href = objectUrl;
+    } else {
+      window.open(objectUrl, "_blank"); // fenêtre bloquée : dernier recours
+    }
+ 
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+  } catch (error) {
+    win?.close();
+    setMessage(
+      error instanceof Error ? error.message : "Impossible d'ouvrir le document.",
+    );
+  } finally {
+    setBusyKey("");
   }
+}
 
   const filtered = documents.filter((doc) => {
     const text = [
@@ -159,12 +158,7 @@ export default function AdminDocumentsPage() {
               conservées.
             </p>
           </div>
-          <Link
-            href="/admin/dashboard"
-            className="rounded-lg border bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100"
-          >
-            ← Tableau de bord
-          </Link>
+    
         </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
@@ -256,7 +250,7 @@ export default function AdminDocumentsPage() {
                             <button
                               disabled={!!busyKey}
                               onClick={() =>
-                                openDocument(doc._id, "cnib", false)
+                                openDocument(doc._id, "cnib", true, doc.reference)
                               }
                               className="rounded-md border px-3 py-2 text-xs font-semibold hover:bg-slate-100 disabled:opacity-50"
                             >

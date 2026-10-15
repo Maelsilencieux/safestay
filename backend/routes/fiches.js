@@ -6,6 +6,8 @@ const path = require('path');
 
 const fs = require('fs');
 
+const mongoose = require('mongoose');
+
 const { body, validationResult } = require('express-validator');
 
 const Fiche = require('../models/Fiche');

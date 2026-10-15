@@ -4,7 +4,7 @@ const router  = express.Router();
 const crypto = require('crypto');
 const path   = require('path');
 const fs     = require('fs');
-
+const validator = require('validator'); 
 const Hotel  = require('../models/Hotel');
 const User   = require('../models/User');
 const Fiche  = require('../models/Fiche');
@@ -95,7 +95,8 @@ router.post('/hotels', async (req, res) => {
         const telephone  = (req.body.telephone || '').trim();
         const rccm       = (req.body.rccm      || '').trim();
         const ville      = (req.body.ville     || '').trim();
-        const emailSaisi = (req.body.email     || '').trim().toLowerCase();
+        //const emailSaisi = (req.body.email     || '').trim().toLowerCase();
+        const emailSaisi = (asString(req.body.email, 150) || '').trim().toLowerCase();
 
         if (!nomHotel || !telephone || !rccm || !ville || !emailSaisi) {
             return res.status(400).json({
@@ -113,9 +114,14 @@ router.post('/hotels', async (req, res) => {
         }
 
         // MODIFICATION 1 : l'e-mail saisi est utilisé tel quel
-        const email = emailSaisi;
-        if (await User.findOne({ email })) {
-            return res.status(409).json({ success: false, message: 'Cet e-mail est déjà utilisé.' });
+    
+        if (!validator.isEmail(emailSaisi)) {
+           return res.status(400).json({ success: false, message: 'E-mail invalide.' });
+        }
+
+        const email = validator.normalizeEmail(emailSaisi) || emailSaisi;
+            if (await User.findOne({ email })) {
+           return res.status(409).json({ success: false, message: 'Cet e-mail est déjà utilisé.' });
         }
 
         // Mot de passe temporaire (haché par le hook pre('save') du modèle User)
@@ -132,6 +138,7 @@ router.post('/hotels', async (req, res) => {
             hotelStatus: 'approved',
             isActive: true,
             isVerified: true,
+            mustChangePassword: true,
             approvedAt: new Date(),
             approvedBy: req.user._id,
         });
@@ -169,6 +176,12 @@ router.patch('/hotels/:userId/approuver', async (req, res) => {
 
         if (user.hotelStatus === 'approved') {
             return res.status(400).json({ success: false, message: 'Cet hôtel est déjà approuvé.' });
+                    if (user.emailVerified === false) {
+            return res.status(400).json({
+                success: false,
+                message: "L'e-mail de cet établissement n'a pas encore été vérifié.",
+            });
+        }
         }
 
         user.hotelStatus = 'approved';

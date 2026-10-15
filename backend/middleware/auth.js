@@ -20,6 +20,12 @@ exports.protect = async (req, res, next) => {
     try {
         // Algorithme imposé : refuse les jetons signés autrement
         const decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+
+        // Un jeton police ne doit pas ouvrir les routes classiques
+        if (decoded.scope === 'police') {
+            return res.status(401).json({ success: false, message: 'Token invalide pour cette ressource.' });
+        }
+
         req.user = await User.findById(decoded.id).select('-password');
 
         if (!req.user) {

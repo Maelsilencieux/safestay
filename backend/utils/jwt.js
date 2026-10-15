@@ -18,8 +18,9 @@ exports.generatePoliceToken = (userId) => {
     );
 };
 
-// Envoie le token dans la réponse + cookie httpOnly optionnel
-exports.sendToken = (user, statusCode, res) => {
+// Envoie le token dans la réponse + cookie httpOnly
+// `extra` : champs supplémentaires à renvoyer (ex. message, role)
+exports.sendToken = (user, statusCode, res, extra = {}) => {
     const token = exports.generateToken(user._id);
 
     const cookieOptions = {
@@ -36,5 +37,6 @@ exports.sendToken = (user, statusCode, res) => {
             success: true,
             token,
             user: user.toSafe(),
+            ...extra,
         });
 };

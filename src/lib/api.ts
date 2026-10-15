@@ -167,6 +167,13 @@ export const Auth = {
       confirmPassword,
     });
   },
+
+    async verifyEmail(email: string, code: string) {
+    return apiCall("POST", "/auth/verify-email", { email, code });
+  },
+  async resendCode(email: string) {
+    return apiCall("POST", "/auth/resend-code", { email });
+  },
   
 };
 
@@ -249,15 +256,14 @@ export const Fiches = {
 
 
  // ===== ADMIN =====
+// ===== ADMIN =====
 export const Admin = {
   async stats() {
     return apiCall("GET", "/admin/stats");
   },
 
   async hotels(statut?: string) {
-    const q = statut
-      ? `?statut=${encodeURIComponent(statut)}`
-      : "";
+    const q = statut ? `?statut=${encodeURIComponent(statut)}` : "";
     return apiCall("GET", `/admin/hotels${q}`);
   },
 
@@ -266,14 +272,32 @@ export const Admin = {
     return apiCall("GET", `/admin/fiches${q ? `?${q}` : ""}`);
   },
 
+  async exportFiches(params: Record<string, string> = {}) {
+    const token = getToken();
+    const q = new URLSearchParams(params).toString();
+    const resp = await fetch(
+      `${API_BASE}/admin/fiches/export${q ? `?${q}` : ""}`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+    );
+    if (!resp.ok) throw new Error("Export impossible.");
+
+    const blob = await resp.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = `fiches_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
+  },
+
   async clients() {
     return apiCall("GET", "/admin/clients");
   },
 
   async users(role?: string) {
-    const q = role
-      ? `?role=${encodeURIComponent(role)}`
-      : "";
+    const q = role ? `?role=${encodeURIComponent(role)}` : "";
     return apiCall("GET", `/admin/users${q}`);
   },
 
@@ -282,18 +306,15 @@ export const Admin = {
   },
 
   async rejeter(userId: string, motif?: string) {
-    return apiCall("PATCH", `/admin/hotels/${userId}/rejeter`, {
-      motif,
-    });
+    return apiCall("PATCH", `/admin/hotels/${userId}/rejeter`, { motif });
   },
 
   async approveHotel(
     id: string,
-    statut: "approved" | "rejected"
+    statut: "approved" | "rejected",
+    motif?: string,
   ) {
-    if (statut === "approved") {
-      return this.approuver(id);
-    }
+    if (statut === "approved") return this.approuver(id);
     return this.rejeter(id, motif);
   },
 
@@ -305,12 +326,12 @@ export const Admin = {
     return apiCall("DELETE", `/admin/users/${userId}`);
   },
 
-    async createHotel(data: {
+  async createHotel(data: {
     nomHotel: string;
     telephone: string;
     rccm: string;
     ville: string;
-    email?: string;
+    email: string;
   }) {
     return apiCall("POST", "/admin/hotels", data);
   },
@@ -319,8 +340,14 @@ export const Admin = {
     return apiCall("DELETE", `/admin/users/${userId}/definitif`);
   },
 
-  async documents() {
-    return apiCall("GET", "/admin/documents");
+  async documents(params: Record<string, string> = {}) {
+    const q = new URLSearchParams(params).toString();
+    return apiCall("GET", `/admin/documents${q ? `?${q}` : ""}`);
+  },
+
+  async audit(params: Record<string, string> = {}) {
+    const q = new URLSearchParams(params).toString();
+    return apiCall("GET", `/admin/audit${q ? `?${q}` : ""}`);
   },
 
   documentViewUrl(id: string) {
@@ -338,17 +365,6 @@ export const Admin = {
   fichePdfDownloadUrl(id: string) {
     return `${API_BASE}/admin/documents/${id}/download-fiche`;
   },
-
-  async approveHotel(
-  id: string,
-  statut: "approved" | "rejected",
-  motif?: string
-) {
-  if (statut === "approved") {
-    return this.approuver(id);
-  }
-  return this.rejeter(id, motif);
-},
 
   async deleteDocument(id: string) {
     return apiCall("DELETE", `/admin/documents/${id}`);

@@ -45,4 +45,4 @@ function startLiberationJob() {
     setTimeout(run, 15000);                                // et 15 s après le démarrage
 }
 
-module.exports = { startLiberationJob, libererChambresExpirees };
+module.exports = { startLiberationJob, libererChambresExpirees }; 

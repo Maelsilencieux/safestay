@@ -93,20 +93,20 @@ export default function RegisterPage() {
 
     setLoading(false);
 
-    if (res.ok && res.data.success) {
-  setSuccess(true);
-  setTimeout(() => router.push("/login"), 2000);
-} else {
-  const errors = (res.data as any).errors;
+        if (res.ok && res.data.success) {
+      const mailVerif = (res.data as any).email || email;
+      router.push(
+        `/verify-email?email=${encodeURIComponent(mailVerif)}&type=${type}`,
+      );
+      return;
+    }
 
-  if (Array.isArray(errors) && errors.length > 0) {
-    setError(errors.map((err: any) => err.msg).join(" "));
-  } else {
-    setError(
-      res.data.message || "Erreur lors de l'inscription."
-    );
-  }
-}
+    const errors = (res.data as any).errors;
+    if (Array.isArray(errors) && errors.length > 0) {
+      setError(errors.map((err: any) => err.msg).join(" "));
+    } else {
+      setError(res.data.message || "Erreur lors de l'inscription.");
+    }
   }
 
   if (success) {

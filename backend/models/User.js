@@ -32,7 +32,21 @@ const UserSchema = new mongoose.Schema({
     verifyToken: String,
     resetToken: String,
     resetTokenExpire: Date,
+
+    // Date du dernier changement de mot de passe (invalide les anciens tokens JWT)
     passwordChangedAt: { type: Date, default: null },
+
+        // --- Vérification de l'e-mail (code à 6 chiffres) ---
+    // default: true  => les comptes existants et ceux créés par l'admin restent utilisables
+    emailVerified:     { type: Boolean, default: true },
+    emailCodeHash:     { type: String, select: false },
+    emailCodeExpire:   { type: Date,   select: false },
+    emailCodeAttempts: { type: Number, select: false, default: 0 },
+    emailCodeSentAt:   { type: Date,   select: false },
+
+    // ★ NOUVEAU : true quand le compte a un mot de passe provisoire
+    // (hôtel créé par le superadmin). Remis à false dès que l'utilisateur le change.
+    mustChangePassword: { type: Boolean, default: false },
 
     // --- Client uniquement ---
     nom:       { type: String, trim: true },
@@ -84,6 +98,11 @@ UserSchema.methods.toSafe = function() {
     delete obj.verifyToken;
     delete obj.resetToken;
     delete obj.resetTokenExpire;
+    delete obj.passwordChangedAt;
+    delete obj.emailCodeHash;
+    delete obj.emailCodeExpire;
+    delete obj.emailCodeAttempts;
+    delete obj.emailCodeSentAt;
     return obj;
 };
 

@@ -13,6 +13,7 @@ type HotelUser = {
   nomHotel?: string;
   nom?: string;
   email?: string;
+  emailVerified?: boolean;
   telephone?: string;
   adresseHotel?: string;
   villeHotel?: string;
@@ -326,6 +327,10 @@ export default function AdminHotelsPage() {
                         <p className="mt-1 text-xs text-slate-500">
                           RCCM : {hotel.rccm || "Non renseigné"}
                         </p>
+                        {hotel.emailVerified === false && (
+                        <p className="mt-1 text-xs font-semibold text-amber-700">
+                          E-mail non vérifié</p>
+                          )}
                       </td>
                       <td className="p-4">
                         <p>{hotel.email || "—"}</p>
@@ -349,7 +354,7 @@ export default function AdminHotelsPage() {
                           {hotel.hotelStatus === "pending" && (
                             <>
                               <button
-                                disabled={!!busyId}
+                                disabled={!!busyId || hotel.emailVerified === false}
                                 onClick={() => approve(hotel._id)}
                                 className="rounded-md bg-green-700 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
                               >

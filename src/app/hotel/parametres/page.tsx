@@ -47,7 +47,14 @@ export default function ParametresPage() {
             </div>
           </dl>
         </section>
+        
 
+        {(user as any)?.mustChangePassword && (
+         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+           Votre compte utilise un mot de passe provisoire. Pour sécuriser votre
+          espace, remplacez-le maintenant par un mot de passe personnel.
+         </p>
+        )}
         {/* Sécurité */}
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="font-display text-xl font-semibold text-slate-900">

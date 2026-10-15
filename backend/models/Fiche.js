@@ -1,4 +1,6 @@
 const mongoose = require('mongoose');
+const Counter  = require('./counter');
+//const pdfFiche = require("./utils/pdfFiche");
 
 // Modèle Fiche d'enregistrement hôtelière
 // Cycle de vie : pending -> registered -> transmitted, ou refused.
@@ -45,6 +47,8 @@ const FicheSchema = new mongoose.Schema({
   dateEntree: { type: Date, required: true },
   dateSortie: { type: Date, required: true },
   chambreNumero: { type: String, required: true, trim: true },
+  // true une fois la chambre libérée (fin de séjour ou refus)
+  chambreLiberee: { type: Boolean, default: false },
   transport: { type: String, required: true, trim: true },
   plaque: { type: String, trim: true },
 
@@ -58,7 +62,6 @@ const FicheSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'registered', 'refused', 'transmitted'],
     default: 'pending',
-    index: true,
   },
   refusMotif: { type: String, trim: true },
 
@@ -69,11 +72,28 @@ const FicheSchema = new mongoose.Schema({
   reference: { type: String, unique: true },
 }, { timestamps: true });
 
+// Référence unique SS-AAAA-00001 via un compteur atomique
+async function prochaineReference(annee) {
+  const id = `fiche-${annee}`;
+
+  // Première utilisation : on part de la plus haute référence déjà présente
+  if (!(await Counter.exists({ _id: id }))) {
+    const derniere = await mongoose.model('Fiche')
+      .findOne({ reference: new RegExp(`^SS-${annee}-`) })
+      .sort('-reference')
+      .select('reference')
+      .lean();
+    const depart = derniere ? parseInt(derniere.reference.split('-')[2], 10) || 0 : 0;
+    await Counter.updateOne({ _id: id }, { $setOnInsert: { seq: depart } }, { upsert: true });
+  }
+
+  const c = await Counter.findOneAndUpdate({ _id: id }, { $inc: { seq: 1 } }, { new: true });
+  return `SS-${annee}-${String(c.seq).padStart(5, '0')}`;
+}
+
 FicheSchema.pre('save', async function () {
   if (this.isNew && !this.reference) {
-    const year = new Date().getFullYear();
-    const count = await mongoose.model('Fiche').countDocuments();
-    this.reference = `SS-${year}-${String(count + 1).padStart(5, '0')}`;
+    this.reference = await prochaineReference(new Date().getFullYear());
   }
 });
 
@@ -86,5 +106,13 @@ FicheSchema.index(
     name: 'unique_active_fiche_per_stay',
   }
 );
+
+// Index de performance
+FicheSchema.index({ hotel: 1, statut: 1, createdAt: -1 });
+FicheSchema.index({ client: 1, createdAt: -1 });
+FicheSchema.index({ hotelUser: 1 });
+FicheSchema.index({ statut: 1, createdAt: -1 });
+FicheSchema.index({ chambreLiberee: 1, dateSortie: 1 });
+FicheSchema.index({ hotel: 1, chambreNumero: 1, statut: 1 });
 
 module.exports = mongoose.model('Fiche', FicheSchema);

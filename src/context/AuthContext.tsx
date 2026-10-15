@@ -22,7 +22,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  login: (email: string, password: string) => Promise<{ success: boolean; message?: string; code?: string; email?: string }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   isClient: boolean;
@@ -85,6 +85,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return {
       success: false,
       message: res.data?.message || "Identifiants incorrects",
+      code: (res.data as any)?.code as string | undefined,
+      email: (res.data as any)?.email as string | undefined,
+    
     };
   }, [router]);
 
