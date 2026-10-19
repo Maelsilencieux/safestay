@@ -15,6 +15,7 @@ import {
   ArrowLeft,
 } from "lucide-react";
 import Pagination from "@/components/ui/Pagination";
+import ConfirmModal from "@/components/ui/Validmodal"; // Ajustez le chemin ou le nom si nécessaire
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/backend";
 const PAGE_SIZE = 10;
@@ -90,6 +91,23 @@ export default function HotelFichesPage() {
   const [message, setMessage] = useState("");
   const [detail, setDetail] = useState<Record<string, any> | null>(null);
 
+  // État de la modale de confirmation personnalisée
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    type: "danger" | "warning" | "info";
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Confirmer",
+    type: "info",
+    onConfirm: () => {},
+  });
+
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -142,29 +160,64 @@ export default function HotelFichesPage() {
     chargerStats();
   }, [chargerStats]);
 
-  async function traiterFiche(
+  // Déclencheur de la modale de confirmation selon l'action
+  function demanderTraitementFiche(
     fiche: Fiche,
     action: "valider" | "refuser" | "transmettre-police",
   ) {
-    let body: { motif?: string } | undefined;
-
     if (action === "refuser") {
       const motif = window.prompt(
         "Indique le motif du refus :",
         "Informations non conformes",
       );
       if (motif === null) return;
-      body = { motif: motif.trim() || "Informations non conformes" };
-    } else {
-      const confirmation: Record<string, string> = {
-        valider:
-          "Confirmer la validation de cette fiche ? Le PDF officiel sera généré.",
-        "transmettre-police":
-          "Confirmer la transmission de cette fiche à la police ?",
-      };
-      if (!window.confirm(confirmation[action])) return;
-    }
+      const motifFinal = motif.trim() || "Informations non conformes";
 
+      setModalConfig({
+        isOpen: true,
+        title: "Refuser la fiche",
+        message: `Êtes-vous sûr de vouloir refuser cette fiche avec le motif : "${motifFinal}" ?`,
+        confirmText: "Refuser",
+        type: "danger",
+        onConfirm: async () => {
+          await executerActionFiche(fiche, action, { motif: motifFinal });
+        },
+      });
+    } else {
+      const configurations = {
+        valider: {
+          title: "Valider la fiche",
+          message: "Confirmer la validation de cette fiche ? Le PDF officiel sera généré.",
+          confirmText: "Valider",
+          type: "info" as const,
+        },
+        "transmettre-police": {
+          title: "Transmettre à la police",
+          message: "Confirmer la transmission de cette fiche à la police ?",
+          confirmText: "Transmettre",
+          type: "warning" as const,
+        },
+      };
+
+      const config = configurations[action];
+      setModalConfig({
+        isOpen: true,
+        title: config.title,
+        message: config.message,
+        confirmText: config.confirmText,
+        type: config.type,
+        onConfirm: async () => {
+          await executerActionFiche(fiche, action);
+        },
+      });
+    }
+  }
+
+  async function executerActionFiche(
+    fiche: Fiche,
+    action: "valider" | "refuser" | "transmettre-police",
+    body?: { motif?: string },
+  ) {
     setActionId(fiche._id);
     setError("");
     setMessage("");
@@ -181,6 +234,7 @@ export default function HotelFichesPage() {
       setError(err instanceof Error ? err.message : "L'opération a échoué.");
     } finally {
       setActionId(null);
+      setModalConfig((prev) => ({ ...prev, isOpen: false }));
     }
   }
 
@@ -474,7 +528,9 @@ export default function HotelFichesPage() {
                           <>
                             <button
                               disabled={actionId === fiche._id}
-                              onClick={() => traiterFiche(fiche, "valider")}
+                              onClick={() =>
+                                demanderTraitementFiche(fiche, "valider")
+                              }
                               className="inline-flex items-center gap-1 rounded-md bg-green-600 px-2.5 py-1.5 text-xs text-white hover:bg-green-700 disabled:opacity-50"
                             >
                               <CheckCircle2 size={14} />
@@ -482,7 +538,9 @@ export default function HotelFichesPage() {
                             </button>
                             <button
                               disabled={actionId === fiche._id}
-                              onClick={() => traiterFiche(fiche, "refuser")}
+                              onClick={() =>
+                                demanderTraitementFiche(fiche, "refuser")
+                              }
                               className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs text-white hover:bg-red-700 disabled:opacity-50"
                             >
                               <XCircle size={14} />
@@ -495,7 +553,10 @@ export default function HotelFichesPage() {
                           <button
                             disabled={actionId === fiche._id}
                             onClick={() =>
-                              traiterFiche(fiche, "transmettre-police")
+                              demanderTraitementFiche(
+                                fiche,
+                                "transmettre-police",
+                              )
                             }
                             className="inline-flex items-center gap-1 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs text-white hover:bg-slate-700 disabled:opacity-50"
                           >
@@ -526,6 +587,19 @@ export default function HotelFichesPage() {
           total={total}
         />
       </section>
+
+      {/* Intégration de la modale de confirmation */}
+      <ConfirmModal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfig.onConfirm}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        confirmText={modalConfig.confirmText}
+        cancelText="Annuler"
+        type={modalConfig.type}
+        loading={!!actionId}
+      />
 
       {detail && (
         <div

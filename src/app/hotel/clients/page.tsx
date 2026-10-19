@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import Pagination from "@/components/ui/Pagination";
 import { usePagination } from "@/lib/usePagination";
+import ConfirmModal from "@/components/ui/Validmodal"; // Remplacez par le nom/chemin correct de votre modale
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/backend";
 
@@ -121,6 +122,23 @@ export default function HotelClientsPage() {
   const [message, setMessage] = useState("");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // État de la modale de confirmation personnalisée
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    type: "danger" | "warning" | "info";
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Confirmer",
+    type: "danger",
+    onConfirm: () => {},
+  });
 
   const chargerClients = useCallback(async () => {
     setLoading(true);
@@ -241,33 +259,42 @@ export default function HotelClientsPage() {
     }
   }
 
-  async function supprimerClient(client: ClientValide) {
+  // Remplacement du window.confirm par le composant ConfirmModal
+  function demanderSuppressionClient(client: ClientValide) {
     const nom =
       [client.prenom, client.nom].filter(Boolean).join(" ") || "ce client";
 
-    const ok = window.confirm(
-      `Supprimer définitivement ${nom} ?\n\n` +
+    setModalConfig({
+      isOpen: true,
+      title: "Suppression définitive",
+      message:
+        `Supprimer définitivement ${nom} ?\n\n` +
         `${client.fiches.length} fiche(s) et tous les documents associés ` +
         `(pièces d'identité + formulaires PDF) seront effacés. Cette action est irréversible.`,
-    );
-    if (!ok) return;
+      confirmText: "Supprimer",
+      type: "danger",
+      onConfirm: async () => {
+        setDeletingId(client.id);
+        setError("");
+        setMessage("");
 
-    setDeletingId(client.id);
-    setError("");
-    setMessage("");
-
-    try {
-      await apiRequest("/fiches/hotel/supprimer", {
-        method: "POST",
-        body: { ficheIds: client.fiches.map((f) => f._id) },
-      });
-      setMessage(`${nom} et ses documents ont été supprimés.`);
-      await chargerClients();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Suppression impossible.");
-    } finally {
-      setDeletingId(null);
-    }
+        try {
+          await apiRequest("/fiches/hotel/supprimer", {
+            method: "POST",
+            body: { ficheIds: client.fiches.map((f) => f._id) },
+          });
+          setMessage(`${nom} et ses documents ont été supprimés.`);
+          await chargerClients();
+        } catch (err) {
+          setError(
+            err instanceof Error ? err.message : "Suppression impossible.",
+          );
+        } finally {
+          setDeletingId(null);
+          setModalConfig((prev) => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   }
 
   const clientsFiltres = clients.filter((client) => {
@@ -498,7 +525,7 @@ export default function HotelClientsPage() {
                     <td className="px-4 py-4 text-right">
                       <button
                         disabled={deletingId === client.id}
-                        onClick={() => supprimerClient(client)}
+                        onClick={() => demanderSuppressionClient(client)}
                         className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
                         title="Supprimer le client et tous ses documents"
                       >
@@ -524,6 +551,19 @@ export default function HotelClientsPage() {
           total={total}
         />
       </section>
+
+      {/* Intégration du composant ConfirmModal */}
+      <ConfirmModal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfig.onConfirm}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        confirmText={modalConfig.confirmText}
+        cancelText="Annuler"
+        type={modalConfig.type}
+        loading={!!deletingId}
+      />
     </div>
   );
 }

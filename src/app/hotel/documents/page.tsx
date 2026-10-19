@@ -18,6 +18,7 @@ import type { Fiche } from "@/types";
 import StatusBadge from "@/components/ui/StatusBadge";
 import Pagination from "@/components/ui/Pagination";
 import { formatDate } from "@/lib/utils";
+import ConfirmModal from "@/components/ui/ConfirmModal"; // Remplacez par le nom/chemin exact de votre modale
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "/api/backend";
 const PAGE_SIZE = 10;
@@ -39,6 +40,23 @@ export default function HotelDocumentsPage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // État de la modale de confirmation personnalisée
+  const [modalConfig, setModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmText: string;
+    type: "danger" | "warning" | "info";
+    onConfirm: () => Promise<void> | void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    confirmText: "Confirmer",
+    type: "danger",
+    onConfirm: () => {},
+  });
 
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -125,36 +143,43 @@ export default function HotelDocumentsPage() {
     }
   }
 
-  async function supprimer(d: Fiche) {
-    const ok = window.confirm(
-      `Supprimer définitivement la fiche de ${d.prenom} ${d.nom} ` +
+  // Remplacement de window.confirm par le composant ConfirmModal
+  function demanderSuppression(d: Fiche) {
+    setModalConfig({
+      isOpen: true,
+      title: "Suppression définitive",
+      message:
+        `Supprimer définitivement la fiche de ${d.prenom} ${d.nom} ` +
         `avec sa pièce d'identité et son formulaire PDF ?\nCette action est irréversible.`,
-    );
-    if (!ok) return;
+      confirmText: "Supprimer",
+      type: "danger",
+      onConfirm: async () => {
+        setDeletingId(d._id);
+        setError("");
 
-    setDeletingId(d._id);
-    setError("");
-
-    try {
-      const token = getToken() || localStorage.getItem("ss_token");
-      const response = await fetch(`${API_BASE}/fiches/hotel/supprimer`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ ficheIds: [d._id] }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) {
-        throw new Error(data.message || "Suppression impossible");
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur de suppression");
-    } finally {
-      setDeletingId(null);
-    }
+        try {
+          const token = getToken() || localStorage.getItem("ss_token");
+          const response = await fetch(`${API_BASE}/fiches/hotel/supprimer`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ ficheIds: [d._id] }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.success === false) {
+            throw new Error(data.message || "Suppression impossible");
+          }
+          await load();
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Erreur de suppression");
+        } finally {
+          setDeletingId(null);
+          setModalConfig((prev) => ({ ...prev, isOpen: false }));
+        }
+      },
+    });
   }
 
   return (
@@ -304,7 +329,7 @@ export default function HotelDocumentsPage() {
                         {/* Supprimer : rouge */}
                         <button
                           disabled={deletingId === d._id}
-                          onClick={() => supprimer(d)}
+                          onClick={() => demanderSuppression(d)}
                           className="inline-flex items-center gap-1.5 rounded-lg bg-red-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
                           title="Supprimer la fiche et tous ses documents"
                         >
@@ -331,6 +356,19 @@ export default function HotelDocumentsPage() {
           />
         </div>
       )}
+
+      {/* Intégration du composant ConfirmModal */}
+      <ConfirmModal
+        isOpen={modalConfig.isOpen}
+        onClose={() => setModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={modalConfig.onConfirm}
+        title={modalConfig.title}
+        message={modalConfig.message}
+        confirmText={modalConfig.confirmText}
+        cancelText="Annuler"
+        type={modalConfig.type}
+        loading={!!deletingId}
+      />
     </div>
   );
 }
